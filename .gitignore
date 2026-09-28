@@ -1,0 +1,39 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environment (managed by uv)
+.venv/
+venv/
+ENV/
+
+# Secrets & environment variables (Crucial for MLOps security)
+.env
+.env.local
+.env.*.local
+!.env.example
+
+# Testing & Linting cache
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# MLflow local runs and artifacts
+mlruns/
+mlartifacts/
+
+# DVC internals (data caches are tracked by DVC, not git)
+.dvc/cache/
+.dvc/tmp/
+.dvc/updater/
+
+# OS and Editor artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
