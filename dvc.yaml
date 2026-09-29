@@ -1,0 +1,41 @@
+stages:
+  prepare:
+    cmd: python -m streamly.pipeline.prepare
+    deps:
+      - data/raw/streamly_churn_sample.parquet
+      - src/streamly/data/validation.py
+      - src/streamly/pipeline/prepare.py
+    params:
+      - prepare.random_state
+      - prepare.test_size
+    outs:
+      - data/processed/test.parquet
+      - data/processed/train.parquet
+
+  train:
+    cmd: python -m streamly.pipeline.train
+    deps:
+      - data/processed/train.parquet
+      - src/streamly/features/builder.py
+      - src/streamly/pipeline/train.py
+    params:
+      - train.max_iter
+      - train.random_state
+      - train.solver
+    outs:
+      - models/baseline_model.joblib
+
+  evaluate:
+    cmd: python -m streamly.pipeline.evaluate
+    deps:
+      - data/processed/test.parquet
+      - models/baseline_model.joblib
+      - src/streamly/features/builder.py
+      - src/streamly/models/evaluation.py
+      - src/streamly/pipeline/evaluate.py
+    params:
+      - evaluate.target_recall
+      - evaluate.threshold
+    metrics:
+      - metrics.json:
+          cache: false

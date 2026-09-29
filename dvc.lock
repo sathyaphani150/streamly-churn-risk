@@ -1,0 +1,87 @@
+schema: '2.0'
+stages:
+  prepare:
+    cmd: python -m streamly.pipeline.prepare
+    deps:
+    - path: data/raw/streamly_churn_sample.parquet
+      hash: md5
+      md5: 275ac17edd883e88de83ee71589d2b92
+      size: 136614
+    - path: src/streamly/data/validation.py
+      hash: md5
+      md5: 5f0256f47229bc6bde7fe955c3045b49
+      size: 7137
+    - path: src/streamly/pipeline/prepare.py
+      hash: md5
+      md5: e12de566849bb8f75659bfb963d1a74e
+      size: 2337
+    params:
+      params.yaml:
+        prepare.random_state: 42
+        prepare.test_size: 0.2
+    outs:
+    - path: data/processed/test.parquet
+      hash: md5
+      md5: 34d3be74196d66576ddab66346da2f9c
+      size: 36800
+    - path: data/processed/train.parquet
+      hash: md5
+      md5: bf50285fcdea595ecae43a7f53dc507b
+      size: 112264
+  train:
+    cmd: python -m streamly.pipeline.train
+    deps:
+    - path: data/processed/train.parquet
+      hash: md5
+      md5: bf50285fcdea595ecae43a7f53dc507b
+      size: 112264
+    - path: src/streamly/features/builder.py
+      hash: md5
+      md5: 02924a4604aa3291b18d2146565d0724
+      size: 4833
+    - path: src/streamly/pipeline/train.py
+      hash: md5
+      md5: f5529949b1a0fbbb14ceb57b99a19111
+      size: 2598
+    params:
+      params.yaml:
+        train.max_iter: 1000
+        train.random_state: 42
+        train.solver: lbfgs
+    outs:
+    - path: models/baseline_model.joblib
+      hash: md5
+      md5: 9133764b5d2c721e412bf898b49c24cf
+      size: 2033
+  evaluate:
+    cmd: python -m streamly.pipeline.evaluate
+    deps:
+    - path: data/processed/test.parquet
+      hash: md5
+      md5: 34d3be74196d66576ddab66346da2f9c
+      size: 36800
+    - path: models/baseline_model.joblib
+      hash: md5
+      md5: 9133764b5d2c721e412bf898b49c24cf
+      size: 2033
+    - path: src/streamly/features/builder.py
+      hash: md5
+      md5: 02924a4604aa3291b18d2146565d0724
+      size: 4833
+    - path: src/streamly/models/evaluation.py
+      hash: md5
+      md5: 5b3f9f29610aea96700e4c1fe5c7e9f4
+      size: 3466
+    - path: src/streamly/pipeline/evaluate.py
+      hash: md5
+      md5: e7ee1ddb85cda5d10526516324b7ed97
+      size: 2514
+    params:
+      params.yaml:
+        evaluate.target_recall: 0.6
+        evaluate.threshold: 0.5
+    outs:
+    - path: metrics.json
+      hash: md5
+      md5: e4f0e50132ef1c04c7471787056653e5
+      size: 338

@@ -1,0 +1,16 @@
+{
+  "roc_auc": 0.8038,
+  "pr_auc": 0.6657,
+  "precision_at_recall_60": 0.6082,
+  "precision": 0.6822,
+  "recall": 0.4864,
+  "f1": 0.5679,
+  "accuracy": 0.755,
+  "brier_score": 0.1653,
+  "confusion_matrix": {
+    "true_negatives": 1188,
+    "false_positives": 150,
+    "false_negatives": 340,
+    "true_positives": 322
+  }
+}
