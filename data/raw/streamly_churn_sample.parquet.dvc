@@ -1,0 +1,5 @@
+outs:
+- md5: 275ac17edd883e88de83ee71589d2b92
+  size: 136614
+  hash: md5
+  path: streamly_churn_sample.parquet
