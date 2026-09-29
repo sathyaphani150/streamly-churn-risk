@@ -30,6 +30,7 @@ mlartifacts/
 .dvc/cache/
 .dvc/tmp/
 .dvc/updater/
+.dvc_remote/
 
 # OS and Editor artifacts
 .DS_Store
