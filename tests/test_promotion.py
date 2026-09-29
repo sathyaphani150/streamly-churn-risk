@@ -8,8 +8,10 @@ Verifies that:
 
 from pathlib import Path
 
+import mlflow
 import pytest
 import yaml
+from mlflow.tracking import MlflowClient
 
 from streamly.tracking.promotion import (
     PromotionGateError,
@@ -132,3 +134,50 @@ def test_gate_and_promote_rejects_substandard_run(tmp_path: Path) -> None:
     updated_run = client.get_run(run.info.run_id)
     assert updated_run.data.tags["promotion.status"] == "REJECTED"
     assert len(client.search_registered_models()) == 0
+
+
+def test_gate_and_promote_custom_challenger_alias(tmp_path: Path) -> None:
+    """gate_and_promote must support custom alias assignment such as @challenger."""
+    db_file = tmp_path / "test_challenger_mlruns.db"
+    uri = f"sqlite:///{db_file}"
+    mlflow.set_tracking_uri(uri)
+    client = MlflowClient(tracking_uri=uri)
+
+    exp_id = client.create_experiment("test-challenger-exp")
+    run = client.create_run(exp_id)
+
+    # Log passing metrics
+    client.log_metric(run.info.run_id, "roc_auc", 0.78)
+    client.log_metric(run.info.run_id, "pr_auc", 0.65)
+    client.log_metric(run.info.run_id, "precision_at_recall_60", 0.58)
+    client.log_metric(run.info.run_id, "brier_score", 0.17)
+
+    # Save a mock artifact
+    artifact_dir = tmp_path / "mock_model"
+    artifact_dir.mkdir()
+    (artifact_dir / "MLmodel").write_text("model_mock")
+    client.log_artifacts(run.info.run_id, str(artifact_dir), artifact_path="model")
+
+    config_path = tmp_path / "thresholds.yaml"
+    with open(config_path, "w", encoding="utf-8") as f:
+        yaml.dump(
+            {
+                "thresholds": {"min_roc_auc": 0.75, "min_pr_auc": 0.60},
+                "registry": {"model_name": "test_challenger_model", "target_alias": "champion"},
+            },
+            f,
+        )
+
+    # Promote with explicit target_alias="challenger"
+    result = gate_and_promote(
+        run_id=run.info.run_id,
+        config_path=config_path,
+        target_alias="challenger",
+        tracking_uri=uri,
+    )
+
+    assert result["status"] == "PROMOTED"
+    assert result["alias"] == "@challenger"
+    registered = client.get_registered_model("test_challenger_model")
+    assert registered.aliases["challenger"] == 1
+

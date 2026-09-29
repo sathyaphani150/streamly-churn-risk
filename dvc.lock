@@ -41,8 +41,8 @@ stages:
       size: 4833
     - path: src/streamly/pipeline/train.py
       hash: md5
-      md5: f5529949b1a0fbbb14ceb57b99a19111
-      size: 2598
+      md5: 1de1ed5439b337b132b2eaff8521ea26
+      size: 2389
     params:
       params.yaml:
         train.max_iter: 1000

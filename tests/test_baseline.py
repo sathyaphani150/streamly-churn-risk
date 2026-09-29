@@ -107,3 +107,33 @@ def test_train_and_evaluate_missing_file_raises_error() -> None:
     """train_and_evaluate must fail loudly if dataset path does not exist."""
     with pytest.raises(FileNotFoundError, match="Training data not found"):
         train_and_evaluate(data_path=Path("non_existent_data.parquet"))
+
+
+@pytest.mark.parametrize(
+    "model_type",
+    ["logistic_regression", "gradient_boosting", "random_forest"],
+)
+def test_create_model_pipeline_multiple_algorithms(
+    model_type: str,
+    mock_dataset: tuple[pd.DataFrame, pd.Series],
+) -> None:
+    """All supported model types must instantiate a Pipeline that trains and predicts bounded probabilities."""
+    from streamly.models.baseline import create_model_pipeline
+
+    X, y = mock_dataset
+    pipeline = create_model_pipeline(model_type=model_type, random_state=42)
+    pipeline.fit(X, y)
+    probs = pipeline.predict_proba(X)[:, 1]
+
+    assert len(probs) == len(X)
+    assert np.all(probs >= 0.0)
+    assert np.all(probs <= 1.0)
+
+
+def test_create_model_pipeline_invalid_type() -> None:
+    """create_model_pipeline must raise ValueError on unsupported algorithm types."""
+    from streamly.models.baseline import create_model_pipeline
+
+    with pytest.raises(ValueError, match="Unsupported model_type"):
+        create_model_pipeline(model_type="quantum_deep_net")
+

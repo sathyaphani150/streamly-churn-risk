@@ -154,6 +154,7 @@ def promote_model_to_registry(
 def gate_and_promote(
     run_id: str,
     config_path: Path = DEFAULT_THRESHOLDS_PATH,
+    target_alias: str | None = None,
     tracking_uri: str | None = None,
 ) -> dict[str, Any]:
     """Execute evaluation quality gate on a run and promote to registry if thresholds pass.
@@ -161,6 +162,7 @@ def gate_and_promote(
     Args:
         run_id: MLflow run ID to evaluate.
         config_path: Path to thresholds.yaml.
+        target_alias: Optional alias to assign (defaults to config or env, e.g. 'champion' or 'challenger').
         tracking_uri: MLflow tracking URI.
 
     Returns:
@@ -183,7 +185,7 @@ def gate_and_promote(
     registry_cfg = config.get("registry", {})
 
     model_name = os.getenv("MODEL_NAME") or registry_cfg.get("model_name", "streamly_churn_model")
-    target_alias = os.getenv("MODEL_REGISTRY_ALIAS") or registry_cfg.get("target_alias", "champion")
+    effective_alias = target_alias or os.getenv("MODEL_REGISTRY_ALIAS") or registry_cfg.get("target_alias", "champion")
 
     # 3. Evaluate Quality Gate
     all_passed, checks = evaluate_quality_gate(actual_metrics, thresholds)
@@ -209,10 +211,10 @@ def gate_and_promote(
     version = promote_model_to_registry(
         run_id=run_id,
         model_name=model_name,
-        target_alias=target_alias,
+        target_alias=effective_alias,
         tracking_uri=uri,
     )
-    print(f"SUCCESS: Promoted {model_name} v{version} to @{target_alias.lstrip('@')}")
+    print(f"SUCCESS: Promoted {model_name} v{version} to @{effective_alias.lstrip('@')}")
     print("=" * 65 + "\n")
 
     return {
@@ -220,7 +222,7 @@ def gate_and_promote(
         "run_id": run_id,
         "model_name": model_name,
         "version": version,
-        "alias": f"@{target_alias.lstrip('@')}",
+        "alias": f"@{effective_alias.lstrip('@')}",
         "checks": checks,
     }
 
@@ -235,11 +237,17 @@ def main() -> None:
         default=DEFAULT_THRESHOLDS_PATH,
         help="Path to thresholds.yaml",
     )
+    parser.add_argument(
+        "--alias",
+        type=str,
+        default=None,
+        help="Registry alias to assign on promotion (e.g. champion, challenger)",
+    )
 
     args = parser.parse_args()
 
     try:
-        gate_and_promote(run_id=args.run_id, config_path=args.config_path)
+        gate_and_promote(run_id=args.run_id, config_path=args.config_path, target_alias=args.alias)
         sys.exit(0)
     except PromotionGateError as exc:
         print(f"\nPROMOTION BLOCKED: {exc}", file=sys.stderr)

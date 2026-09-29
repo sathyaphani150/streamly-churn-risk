@@ -20,7 +20,7 @@ import pandas as pd
 import yaml
 
 from streamly.features.builder import FEATURE_COLUMNS, build_training_features
-from streamly.models.baseline import create_baseline_pipeline, split_data
+from streamly.models.baseline import create_model_pipeline, split_data
 from streamly.models.evaluation import evaluate_predictions
 
 # Silence advisory hint on tracing
@@ -50,6 +50,7 @@ def run_experiment(
     tracking_uri: str | None = None,
     experiment_name: str | None = None,
     run_name: str = "baseline_logistic_regression",
+    model_type: str | None = None,
 ) -> str:
     """Execute end-to-end training and log all metadata to MLflow.
 
@@ -59,6 +60,7 @@ def run_experiment(
         tracking_uri: MLflow tracking backend URI (defaults to env or sqlite:///mlruns.db).
         experiment_name: MLflow experiment name (defaults to env or streamly-churn-risk).
         run_name: Human-readable name for the run.
+        model_type: Optional algorithm identifier ('logistic_regression', 'gradient_boosting', 'random_forest').
 
     Returns:
         str: MLflow run_id.
@@ -74,9 +76,9 @@ def run_experiment(
         params: dict[str, Any] = yaml.safe_load(f)
 
     test_size = float(params.get("prepare", {}).get("test_size", 0.20))
-    random_state = int(params.get("train", {}).get("random_state", 42))
-    max_iter = int(params.get("train", {}).get("max_iter", 1000))
-    solver = str(params.get("train", {}).get("solver", "lbfgs"))
+    train_params: dict[str, Any] = params.get("train", {})
+    effective_model_type = model_type or str(train_params.get("model_type", "logistic_regression"))
+    random_state = int(train_params.get("random_state", 42))
     threshold = float(params.get("evaluate", {}).get("threshold", 0.50))
     target_recall = float(params.get("evaluate", {}).get("target_recall", 0.60))
 
@@ -96,21 +98,30 @@ def run_experiment(
         run_id = run.info.run_id
         print(f"[mlflow] Active run started: {run_id} (Experiment: {exp_name})")
 
-        # A. Log Parameters
-        mlflow.log_params(
-            {
-                "model_type": "LogisticRegression",
-                "scaler": "StandardScaler",
-                "max_iter": max_iter,
-                "solver": solver,
-                "random_state": random_state,
-                "test_size": test_size,
-                "decision_threshold": threshold,
-                "target_recall_constraint": target_recall,
-                "num_train_samples": len(X_train),
-                "num_test_samples": len(X_test),
-            }
-        )
+        # A. Log Model & Training Parameters
+        logged_params: dict[str, Any] = {
+            "model_type": effective_model_type,
+            "random_state": random_state,
+            "test_size": test_size,
+            "decision_threshold": threshold,
+            "target_recall_constraint": target_recall,
+            "num_train_samples": len(X_train),
+            "num_test_samples": len(X_test),
+        }
+        if effective_model_type in ("logistic_regression", "lr", "baseline"):
+            logged_params["scaler"] = "StandardScaler"
+            logged_params["max_iter"] = int(train_params.get("max_iter", 1000))
+            logged_params["solver"] = str(train_params.get("solver", "lbfgs"))
+        elif effective_model_type in ("gradient_boosting", "hist_gradient_boosting", "hgb"):
+            logged_params["max_iter"] = int(train_params.get("max_iter", 100))
+            logged_params["learning_rate"] = float(train_params.get("learning_rate", 0.05))
+            logged_params["max_depth"] = int(train_params.get("max_depth", 4))
+        elif effective_model_type in ("random_forest", "rf"):
+            logged_params["n_estimators"] = int(train_params.get("n_estimators", 100))
+            logged_params["max_depth"] = int(train_params.get("max_depth", 6))
+            logged_params["min_samples_leaf"] = int(train_params.get("min_samples_leaf", 10))
+
+        mlflow.log_params(logged_params)
 
         # B. Log Lineage Tags
         mlflow.set_tags(
@@ -124,7 +135,14 @@ def run_experiment(
         )
 
         # C. Train Model Pipeline
-        pipeline = create_baseline_pipeline(random_state=random_state)
+        extra_kwargs = {
+            k: v for k, v in train_params.items() if k not in ("model_type", "random_state")
+        }
+        pipeline = create_model_pipeline(
+            model_type=effective_model_type,
+            random_state=random_state,
+            **extra_kwargs,
+        )
         pipeline.fit(X_train, y_train)
 
         # D. Predict probabilities and evaluate
@@ -149,11 +167,15 @@ def run_experiment(
         )
 
         # G. Log Model Artifact
+        trusted_types = [
+            "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
+        ]
         mlflow.sklearn.log_model(
             sk_model=pipeline,
             artifact_path="model",
             signature=signature,
             input_example=input_example,
+            skops_trusted_types=trusted_types,
         )
 
         # H. Log Custom Artifacts (Confusion Matrix & Feature List)
@@ -202,12 +224,19 @@ def main() -> None:
         default="baseline_logistic_regression",
         help="Name for MLflow run",
     )
+    parser.add_argument(
+        "--model-type",
+        type=str,
+        default=None,
+        help="Algorithm identifier (logistic_regression, gradient_boosting, random_forest)",
+    )
 
     args = parser.parse_args()
     run_experiment(
         data_path=args.data_path,
         params_path=args.params_path,
         run_name=args.run_name,
+        model_type=args.model_type,
     )
 
 

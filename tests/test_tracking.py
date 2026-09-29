@@ -92,7 +92,7 @@ def test_run_experiment_logs_complete_metadata(
     assert run.info.status == "FINISHED"
 
     # Verify Parameters
-    assert run.data.params["model_type"] == "LogisticRegression"
+    assert run.data.params["model_type"].lower() in ("logistic_regression", "logisticregression")
     assert run.data.params["max_iter"] == "500"
     assert run.data.params["solver"] == "lbfgs"
 

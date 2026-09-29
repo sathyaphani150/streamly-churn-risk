@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from sklearn.ensemble import HistGradientBoostingClassifier, RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
@@ -20,31 +21,90 @@ from streamly.features.builder import build_training_features
 from streamly.models.evaluation import evaluate_predictions
 
 
-def create_baseline_pipeline(random_state: int = 42) -> Pipeline:
-    """Instantiate a standardized Scikit-Learn pipeline for baseline churn prediction.
+def create_model_pipeline(
+    model_type: str = "logistic_regression",
+    random_state: int = 42,
+    **kwargs: Any,
+) -> Pipeline:
+    """Instantiate a standardized Scikit-Learn pipeline for churn prediction.
 
-    Combines StandardScaler (to normalize disparate engagement scales like tenure and watch hours)
-    with LogisticRegression for calibrated probability estimation.
+    Supports candidate algorithms with a consistent Pipeline interface:
+    - 'logistic_regression': StandardScaler + LogisticRegression (calibrated linear baseline)
+    - 'gradient_boosting': HistGradientBoostingClassifier (tree-based gradient boosting)
+    - 'random_forest': RandomForestClassifier (bagged decision tree ensemble)
 
     Args:
-        random_state: Random state for deterministic optimization.
+        model_type: Algorithm identifier ('logistic_regression', 'gradient_boosting', 'random_forest').
+        random_state: Random seed for deterministic optimization.
+        **kwargs: Additional algorithm-specific hyperparameters.
 
     Returns:
-        Pipeline: Unfitted Scikit-Learn pipeline.
+        Pipeline: Scikit-Learn pipeline adhering to uniform fit/predict_proba interface.
     """
-    return Pipeline(
-        steps=[
-            ("scaler", StandardScaler()),
-            (
-                "classifier",
-                LogisticRegression(
-                    max_iter=1000,
-                    random_state=random_state,
-                    solver="lbfgs",
+    clean_type = model_type.lower().strip()
+    if clean_type in ("logistic_regression", "lr", "baseline"):
+        max_iter = int(kwargs.get("max_iter", 1000))
+        solver = str(kwargs.get("solver", "lbfgs"))
+        return Pipeline(
+            steps=[
+                ("scaler", StandardScaler()),
+                (
+                    "classifier",
+                    LogisticRegression(
+                        max_iter=max_iter,
+                        random_state=random_state,
+                        solver=solver,
+                    ),
                 ),
-            ),
-        ]
-    )
+            ]
+        )
+    elif clean_type in ("gradient_boosting", "hist_gradient_boosting", "hgb"):
+        max_iter = int(kwargs.get("max_iter", 100))
+        max_depth = int(kwargs.get("max_depth", 5)) if kwargs.get("max_depth") else None
+        learning_rate = float(kwargs.get("learning_rate", 0.05))
+        return Pipeline(
+            steps=[
+                (
+                    "classifier",
+                    HistGradientBoostingClassifier(
+                        max_iter=max_iter,
+                        max_depth=max_depth,
+                        learning_rate=learning_rate,
+                        random_state=random_state,
+                    ),
+                ),
+            ]
+        )
+    elif clean_type in ("random_forest", "rf"):
+        n_estimators = int(kwargs.get("n_estimators", 100))
+        max_depth = int(kwargs.get("max_depth", 6)) if kwargs.get("max_depth") else None
+        min_samples_leaf = int(kwargs.get("min_samples_leaf", 10))
+        return Pipeline(
+            steps=[
+                (
+                    "classifier",
+                    RandomForestClassifier(
+                        n_estimators=n_estimators,
+                        max_depth=max_depth,
+                        min_samples_leaf=min_samples_leaf,
+                        random_state=random_state,
+                    ),
+                ),
+            ]
+        )
+    else:
+        raise ValueError(
+            f"Unsupported model_type: '{model_type}'. "
+            "Supported: 'logistic_regression', 'gradient_boosting', 'random_forest'"
+        )
+
+
+def create_baseline_pipeline(random_state: int = 42) -> Pipeline:
+    """Instantiate baseline logistic regression pipeline.
+
+    Maintained for direct backward-compatibility.
+    """
+    return create_model_pipeline(model_type="logistic_regression", random_state=random_state)
 
 
 def split_data(
@@ -80,13 +140,17 @@ def train_and_evaluate(
     data_path: Path,
     test_size: float = 0.20,
     random_state: int = 42,
+    model_type: str = "logistic_regression",
+    **kwargs: Any,
 ) -> tuple[Pipeline, dict[str, Any]]:
-    """Execute end-to-end baseline training and evaluation on held-out test set.
+    """Execute end-to-end model training and evaluation on held-out test set.
 
     Args:
         data_path: Path to raw parquet data file.
         test_size: Proportion of data reserved for test set.
         random_state: Random seed.
+        model_type: Algorithm identifier ('logistic_regression', 'gradient_boosting', 'random_forest').
+        **kwargs: Additional hyperparameters passed to model builder.
 
     Returns:
         tuple[Pipeline, dict[str, Any]]: (fitted_pipeline, metrics_dict).
@@ -104,7 +168,11 @@ def train_and_evaluate(
     )
 
     # 3. Fit pipeline on train set only
-    pipeline = create_baseline_pipeline(random_state=random_state)
+    pipeline = create_model_pipeline(
+        model_type=model_type,
+        random_state=random_state,
+        **kwargs,
+    )
     pipeline.fit(X_train, y_train)
 
     # 4. Predict probabilities on held-out test set

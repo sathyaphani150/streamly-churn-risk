@@ -13,11 +13,9 @@ from typing import Any
 import joblib
 import pandas as pd
 import yaml
-from sklearn.linear_model import LogisticRegression
-from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import StandardScaler
 
 from streamly.features.builder import build_training_features
+from streamly.models.baseline import create_model_pipeline
 
 
 def load_params(params_path: Path = Path("params.yaml")) -> dict[str, Any]:
@@ -32,7 +30,7 @@ def run_train(
     model_output_path: Path = Path("models/baseline_model.joblib"),
     params_path: Path = Path("params.yaml"),
 ) -> None:
-    """Train baseline churn prediction model and save fitted pipeline artifact."""
+    """Train churn prediction model and save fitted pipeline artifact."""
     print(f"[train] Loading training data from: {train_data_path}")
     if not train_data_path.exists():
         print(f"[train] Error: Training data not found at {train_data_path}", file=sys.stderr)
@@ -46,24 +44,18 @@ def run_train(
 
     # 2. Load hyperparameters
     params = load_params(params_path)
+    model_type = str(params.get("model_type", "logistic_regression"))
     random_state = int(params.get("random_state", 42))
-    max_iter = int(params.get("max_iter", 1000))
-    solver = str(params.get("solver", "lbfgs"))
 
-    # 3. Instantiate pipeline (StandardScaler + LogisticRegression)
-    print(f"[train] Fitting Scikit-Learn Pipeline (solver={solver}, max_iter={max_iter})...")
-    pipeline = Pipeline(
-        steps=[
-            ("scaler", StandardScaler()),
-            (
-                "classifier",
-                LogisticRegression(
-                    max_iter=max_iter,
-                    random_state=random_state,
-                    solver=solver,
-                ),
-            ),
-        ]
+    # 3. Instantiate pipeline via shared model factory
+    print(f"[train] Fitting Scikit-Learn Pipeline (type={model_type}, random_state={random_state})...")
+    extra_kwargs = {
+        k: v for k, v in params.items() if k not in ("model_type", "random_state")
+    }
+    pipeline = create_model_pipeline(
+        model_type=model_type,
+        random_state=random_state,
+        **extra_kwargs,
     )
 
     pipeline.fit(X_train, y_train)
