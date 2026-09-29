@@ -25,6 +25,8 @@ htmlcov/
 # MLflow local runs and artifacts
 mlruns/
 mlartifacts/
+mlruns.db
+*.db
 
 # DVC internals (data caches are tracked by DVC, not git)
 .dvc/cache/
