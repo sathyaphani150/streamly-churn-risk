@@ -1,0 +1,13 @@
+# Quality & Promotion Gate Configuration for Streamly Churn Model
+# Models must strictly satisfy all thresholds on the held-out evaluation set
+# before they are eligible for registration and production alias assignment.
+
+thresholds:
+  min_roc_auc: 0.75                  # Minimum acceptable discriminative ranking ability
+  min_pr_auc: 0.60                   # Minimum Precision-Recall AUC (baseline churn ~33%)
+  min_precision_at_recall_60: 0.55   # Outreach efficiency floor at 60% churn capture
+  max_brier_score: 0.20              # Maximum probability calibration error
+
+registry:
+  model_name: streamly_churn_model   # Central registered model name in MLflow
+  target_alias: champion             # Active serving alias (@champion or @production)
