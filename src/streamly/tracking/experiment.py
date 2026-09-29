@@ -169,6 +169,7 @@ def run_experiment(
         # G. Log Model Artifact
         trusted_types = [
             "sklearn.ensemble._hist_gradient_boosting.predictor.TreePredictor",
+            "sklearn.tree._tree.Tree",
         ]
         mlflow.sklearn.log_model(
             sk_model=pipeline,
