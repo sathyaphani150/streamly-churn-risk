@@ -1,0 +1,35 @@
+# Version control
+.git/
+.gitignore
+
+# Python bytecode and virtual environments
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testing and linting caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# DVC storage and caches
+.dvc/cache/
+.dvc/tmp/
+.dvc_remote/
+
+# Local database and runs (model registry is mounted or pulled from artifact store)
+mlruns/
+
+# Development documentation and tests
+docs/
+tests/
+
+# OS and temporary files
+*.tmp
+*.log
+.DS_Store
+Thumbs.db
