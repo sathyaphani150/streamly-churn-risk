@@ -21,6 +21,7 @@ import mlflow
 import mlflow.sklearn
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from streamly.data.validation import validate_serving_data
@@ -114,6 +115,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     print("[serving] Initializing Streamly Churn Scoring API...")
     try:
         model, model_version = load_scoring_model()
+        # Warm up feature builder and model pipeline to eliminate first-request cold-start latency
+        warmup_df = pd.DataFrame(
+            [
+                {
+                    "member_id": "warmup",
+                    "tenure_days": 10,
+                    "sessions_7d": 1,
+                    "watch_hours_7d": 1.0,
+                    "support_tickets_30d": 0,
+                    "plan_tier": "basic",
+                    "price_increase_flag": 0,
+                }
+            ]
+        )
+        warmup_features = build_serving_features(warmup_df)
+        model.predict_proba(warmup_features)
+        print("[serving] Model pipeline and schemas warmed up successfully.")
+
         app.state.model = model
         app.state.model_version = model_version
         app.state.is_ready = True
@@ -144,6 +163,12 @@ async def add_process_time_header(request: Request, call_next: Any) -> Response:
     duration_ms = (time.perf_counter() - start_time) * 1000.0
     response.headers["X-Process-Time-Ms"] = f"{duration_ms:.2f}"
     return response
+
+
+@app.get("/", include_in_schema=False)
+async def root() -> RedirectResponse:
+    """Redirect root path to interactive Swagger documentation."""
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/health", response_model=HealthResponse, tags=["Monitoring"])

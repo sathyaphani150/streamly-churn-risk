@@ -42,6 +42,13 @@ def test_health_check_endpoint(client: TestClient) -> None:
     assert "X-Process-Time-Ms" in response.headers
 
 
+def test_root_redirects_to_docs(client: TestClient) -> None:
+    """GET / must redirect to /docs Swagger UI."""
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code in (302, 307)
+    assert response.headers["location"] == "/docs"
+
+
 def test_score_valid_payload(client: TestClient) -> None:
     """POST /score must calculate and return calibrated probability for valid member."""
     payload = {
