@@ -1,0 +1,77 @@
+name: Streamly MLOps CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality-gate-and-tests:
+    name: Code Hygiene, Contracts & Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install uv Package Manager
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.1"
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.11
+
+      - name: Install Locked Dependencies
+        run: uv sync --extra dev --frozen
+
+      - name: 1. Code Linting & Style Check (Ruff)
+        run: uv run ruff check .
+
+      - name: 2. Strict Static Type Analysis (Mypy)
+        run: uv run mypy src tests
+
+      - name: 3. Schema & Data Contract Quality Gate
+        run: uv run python -m streamly.data.validation
+
+      - name: 4. Execute Unit & Integration Test Suite
+        run: |
+          uv run pytest --cov=streamly --cov-report=xml:coverage.xml --cov-report=term-missing --junitxml=junit-report.xml
+
+      - name: 5. Archive Test Reports and Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-and-coverage-reports
+          path: |
+            coverage.xml
+            junit-report.xml
+          retention-days: 14
+
+  container-build-check:
+    name: Multi-stage Docker Build Verification
+    runs-on: ubuntu-latest
+    needs: quality-gate-and-tests
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Production Container Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false
+          tags: streamly-churn:ci-test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
