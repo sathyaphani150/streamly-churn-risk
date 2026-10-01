@@ -204,7 +204,7 @@ def main() -> None:
     parser.add_argument(
         "--data-path",
         type=Path,
-        required=True,
+        default=Path("data/raw/streamly_churn_sample.parquet"),
         help="Path to the dataset file (.parquet or .csv) to validate",
     )
     parser.add_argument(

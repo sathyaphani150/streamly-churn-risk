@@ -41,7 +41,7 @@ jobs:
         run: uv run python -m streamly.data.make_dataset
 
       - name: 4. Schema & Data Contract Quality Gate
-        run: uv run python -m streamly.data.validation
+        run: uv run python -m streamly.data.validation --data-path data/raw/streamly_churn_sample.parquet --mode train
 
       - name: 5. Execute Reproducible Pipeline (Prepare & Train)
         run: |
