@@ -33,6 +33,11 @@ COPY src/ ./src/
 COPY README.md ./
 RUN uv sync --frozen --no-dev
 
+# Generate local fallback model artifact inside image for self-contained portability
+RUN uv run python -m streamly.data.make_dataset && \
+    uv run python -m streamly.pipeline.prepare && \
+    uv run python -m streamly.pipeline.train
+
 # ------------------------------------------------------------------------------
 # Stage 2: Minimal Hardened Runtime
 # ------------------------------------------------------------------------------
@@ -56,8 +61,8 @@ RUN groupadd --gid 10001 appgroup && \
 COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 COPY --chown=appuser:appgroup src/ /app/src/
 
-# Copy local fallback model artifact for air-gapped / offline deployments
-COPY --chown=appuser:appgroup models/baseline_model.joblib /app/models/baseline_model.joblib
+# Copy fallback model artifact generated during build
+COPY --from=builder --chown=appuser:appgroup /app/models /app/models
 
 # Drop all root privileges
 USER appuser

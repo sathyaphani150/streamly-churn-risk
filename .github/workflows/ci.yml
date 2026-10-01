@@ -37,14 +37,29 @@ jobs:
       - name: 2. Strict Static Type Analysis (Mypy)
         run: uv run mypy src tests
 
-      - name: 3. Schema & Data Contract Quality Gate
+      - name: 3. Materialize Sample Dataset for CI Validation
+        run: uv run python -m streamly.data.make_dataset
+
+      - name: 4. Schema & Data Contract Quality Gate
         run: uv run python -m streamly.data.validation
 
-      - name: 4. Execute Unit & Integration Test Suite
+      - name: 5. Execute Reproducible Pipeline (Prepare & Train)
+        run: |
+          uv run python -m streamly.pipeline.prepare
+          uv run python -m streamly.pipeline.train
+          uv run python -m streamly.pipeline.evaluate
+
+      - name: 6. MLflow Experiment Tracking & Champion Promotion
+        run: |
+          uv run python -m streamly.tracking.experiment --run-name ci_candidate
+          RUN_ID=$(uv run python -c "import mlflow; mlflow.set_tracking_uri('sqlite:///mlruns.db'); print(mlflow.search_runs(experiment_names=['streamly-churn-risk'])['run_id'].iloc[0])")
+          uv run python -m streamly.tracking.promotion --run-id $RUN_ID --alias champion
+
+      - name: 7. Execute Unit & Integration Test Suite (54 Tests)
         run: |
           uv run pytest --cov=streamly --cov-report=xml:coverage.xml --cov-report=term-missing --junitxml=junit-report.xml
 
-      - name: 5. Archive Test Reports and Artifacts
+      - name: 8. Archive Test Reports and Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -52,6 +67,7 @@ jobs:
           path: |
             coverage.xml
             junit-report.xml
+            metrics.json
           retention-days: 14
 
   container-build-check:
