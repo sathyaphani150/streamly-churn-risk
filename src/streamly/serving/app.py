@@ -82,19 +82,26 @@ def load_scoring_model() -> tuple[Any, str]:
 
     # 1. Primary path: Attempt MLflow Model Registry alias resolution
     model_uri = f"models:/{model_name}@{target_alias}"
-    try:
-        mlflow.set_tracking_uri(tracking_uri)
-        print(f"[serving] Resolving model from MLflow Registry: {model_uri}...")
-        model = mlflow.sklearn.load_model(model_uri)
-        version_tag = f"{model_name}@{target_alias}"
-        print(f"[serving] Successfully loaded model from {version_tag}")
-        return model, version_tag
-    except Exception as exc:
-        print(
-            f"[serving] Warning: Failed to load from MLflow Registry ({exc}). "
-            f"Falling back to local artifact: {local_artifact_path}...",
-            file=sys.stderr,
-        )
+    should_try_mlflow = True
+    if tracking_uri.startswith("sqlite:///"):
+        sqlite_file = Path(tracking_uri.replace("sqlite:///", ""))
+        if not sqlite_file.exists():
+            should_try_mlflow = False
+
+    if should_try_mlflow:
+        try:
+            mlflow.set_tracking_uri(tracking_uri)
+            print(f"[serving] Resolving model from MLflow Registry: {model_uri}...")
+            model = mlflow.sklearn.load_model(model_uri)
+            version_tag = f"{model_name}@{target_alias}"
+            print(f"[serving] Successfully loaded model from {version_tag}")
+            return model, version_tag
+        except Exception as exc:
+            print(
+                f"[serving] Warning: Failed to load from MLflow Registry ({exc}). "
+                f"Falling back to local artifact: {local_artifact_path}...",
+                file=sys.stderr,
+            )
 
     # 2. Resilient fallback path: Local serialised artifact (for air-gapped / test environments)
     if local_artifact_path.exists():
