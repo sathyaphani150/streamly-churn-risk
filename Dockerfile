@@ -28,9 +28,9 @@ COPY pyproject.toml uv.lock ./
 # Install production dependencies into isolated virtual environment
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Layer 2: Copy application code and perform final project installation
+# Layer 2: Copy application code, configurations, and perform final project installation
 COPY src/ ./src/
-COPY README.md ./
+COPY README.md params.yaml thresholds.yaml ./
 RUN uv sync --frozen --no-dev
 
 # Generate local fallback model artifact inside image for self-contained portability
@@ -49,6 +49,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app/src" \
     STREAMLY_ENV="prod" \
     MODEL_NAME="streamly_churn_model" \
     MODEL_REGISTRY_ALIAS="champion"
@@ -60,6 +61,7 @@ RUN groupadd --gid 10001 appgroup && \
 # Copy virtual environment and project binaries from builder stage
 COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 COPY --chown=appuser:appgroup src/ /app/src/
+COPY --chown=appuser:appgroup params.yaml ./
 
 # Copy fallback model artifact generated during build
 COPY --from=builder --chown=appuser:appgroup /app/models /app/models
