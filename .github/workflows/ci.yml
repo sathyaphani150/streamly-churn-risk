@@ -85,10 +85,11 @@ jobs:
 
       - name: Verify Container Startup & Production Healthcheck
         run: |
-          docker run -d --name streamly-svc -p 8000:8000 streamly-churn:ci-test
-          sleep 6
+          docker run -d --name streamly-svc -p 8080:8000 streamly-churn:ci-test
+          sleep 5
           docker ps
-          curl -f http://localhost:8000/health
+          docker logs streamly-svc
+          curl --retry 5 --retry-delay 2 --retry-connrefused -f http://localhost:8080/health
           docker stop streamly-svc
 
       - name: Dump Docker Build Log on Failure

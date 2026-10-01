@@ -74,7 +74,7 @@ EXPOSE 8000
 
 # Automated container healthcheck validating the /health endpoint
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+    CMD /app/.venv/bin/python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
 # Production server entrypoint with standard ASGI uvicorn
-ENTRYPOINT ["uvicorn", "streamly.serving.app:app", "--host", "0.0.0.0", "--port", "8000"]
+ENTRYPOINT ["/app/.venv/bin/python", "-m", "uvicorn", "streamly.serving.app:app", "--host", "0.0.0.0", "--port", "8000"]
