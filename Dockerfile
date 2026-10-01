@@ -30,7 +30,8 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 # Layer 2: Copy application code, configurations, and perform final project installation
 COPY src/ ./src/
-COPY README.md params.yaml thresholds.yaml ./
+COPY configs/ ./configs/
+COPY README.md params.yaml ./
 RUN uv sync --frozen --no-dev
 
 # Generate local fallback model artifact inside image for self-contained portability
@@ -61,6 +62,7 @@ RUN groupadd --gid 10001 appgroup && \
 # Copy virtual environment and project binaries from builder stage
 COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 COPY --chown=appuser:appgroup src/ /app/src/
+COPY --chown=appuser:appgroup configs/ ./configs/
 COPY --chown=appuser:appgroup params.yaml ./
 
 # Copy fallback model artifact generated during build
