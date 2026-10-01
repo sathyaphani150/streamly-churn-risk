@@ -34,9 +34,9 @@ COPY README.md params.yaml thresholds.yaml ./
 RUN uv sync --frozen --no-dev
 
 # Generate local fallback model artifact inside image for self-contained portability
-RUN uv run python -m streamly.data.make_dataset && \
-    uv run python -m streamly.pipeline.prepare && \
-    uv run python -m streamly.pipeline.train
+RUN /app/.venv/bin/python -m streamly.data.make_dataset && \
+    /app/.venv/bin/python -m streamly.pipeline.prepare && \
+    /app/.venv/bin/python -m streamly.pipeline.train
 
 # ------------------------------------------------------------------------------
 # Stage 2: Minimal Hardened Runtime

@@ -80,7 +80,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Production Container Image
-        run: docker build -t streamly-churn:ci-test .
+        run: |
+          docker build --progress=plain -t streamly-churn:ci-test . 2>&1 | tee docker-build.log
 
       - name: Verify Container Startup & Production Healthcheck
         run: |
@@ -89,3 +90,9 @@ jobs:
           docker ps
           curl -f http://localhost:8000/health
           docker stop streamly-svc
+
+      - name: Dump Docker Build Log on Failure
+        if: failure()
+        run: |
+          echo "=== DOCKER BUILD LOG DUMP ==="
+          cat docker-build.log || true
