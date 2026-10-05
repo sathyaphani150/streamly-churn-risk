@@ -1,0 +1,165 @@
+Junior ML Engineer Assessment
+Outcome: A small but production-shaped churn-risk scoring system your reviewer can clone, train, gate, register, containerise, and call over HTTP
+The brief
+You are joining Streamly, a subscription streaming product. Growth currently flags likely churners in a weekly spreadsheet. Retention wants a near-real-time path: when a member opens the app or hits a billing checkpoint, a service returns a churn risk score in about 200 ms, using the latest approved model, so support and offers can react in-session.
+You are given (or create) a small starter repo and a sample of historical labelled member snapshots. Your job is to ship a credible mini production path — not a notebook demo. By the end, a reviewer should be able to:
+Set up a clean Python environment from your project definition and run lint, typecheck, and tests.
+Reproduce data preparation and training from declared pipeline stages, with data and models versioned separately from source.
+See an experiment run with params, metrics, artifacts, dataset reference, and a model signature.
+Confirm a weak or leaking model cannot be promoted: schema/quality gates and evaluation thresholds block the path.
+Review a short-lived branch PR into main with conventional commits and green CI (including quality gates and test reports as artifacts).
+Run a containerised scoring API as a non-root user and curl a score that returns churn_risk and model_version.
+If starter files are missing, generate a tiny synthetic dataset (~5–10k rows), keep it honest, and document how you made it.
+Product requirements
+Treat these as non-negotiable.
+Serve input: member features available at request time only. No future labels, no post-churn outcomes, no “days until cancel” style fields.
+Serve output: JSON with churn_risk in [0, 1] and model_version (registry alias or immutable version id).
+Training: historical snapshots with churned_30d (did the member cancel within 30 days of the snapshot).
+Promotion: a model reaches the alias used by the API only after it clears evaluation thresholds. Document who/what is allowed to move aliases (Staging → Production, or @challenger → @champion).
+Secrets: remote credentials, tracking tokens, registry passwords — never in git. Ship .env.example and document how local/CI inject real values.
+Environments: make dev, ci, and prod (or staging/prod) differ on purpose — config, remotes, and which model alias the API loads.
+Expected feature contract (train vs serve)
+Field
+Type
+Train
+Serve
+Notes
+`member_id`
+string
+yes
+yes
+Identity only — not a model feature
+`tenure_days`
+int
+yes
+yes
+≥ 0
+`sessions_7d`
+int
+yes
+yes
+≥ 0
+`watch_hours_7d`
+float
+yes
+yes
+≥ 0
+`support_tickets_30d`
+int
+yes
+yes
+≥ 0
+`plan_tier`
+string/category
+yes
+yes
+Controlled vocabulary (e.g. basic / standard / premium)
+`price_increase_flag`
+bool/int
+yes
+yes
+Whether a price change is in effect for this member
+`churned_30d`
+bool/int
+yes
+no
+Label; leakage if present at serve
+
+You may add a couple of derived features, but one shared feature-builder must feed both training and the API so train/serve columns and dtypes cannot silently drift.
+What to build (one path, end to end)
+Work as if this were a real thin vertical slice. The narrative order below is the happy path a teammate would follow; you may parallelise, but the submitted system should hang together as one story.
+1. Frame the system
+In docs/design.md (≤2 pages), describe how this churn-scoring path actually runs in production:
+Lifecycle from raw extract → validated data → train → evaluate → register → deploy → (light) monitor
+Who owns data, training, review, promotion, and the scoring service
+Repo layout (src, tests, configs, what is gitignored vs data-versioned, container and CI homes)
+What “done” means before anything is called production (your definition-of-done checklist)
+2. Make the repo engineerable
+Turn the repo into something a colleague can trust:
+pyproject.toml with runtime deps and a dev extra (pytest, ruff and/or mypy, etc.)
+A lockfile or pinning strategy (uv/poetry/pip-tools — say why you chose it)
+README: create venv, install, lint, test, train, serve
+Type hints on public train / evaluate / predict APIs
+Config via YAML + env; secrets only via environment
+Tests that prove something real: a deterministic transform, predict rejecting a row missing a required feature, config failing loudly on missing keys
+3. Protect the data path
+Before anyone trains seriously:
+Encode the schema contract (Pandera, GE, Pydantic, JSON Schema — your choice)
+Run missingness / range / vocabulary checks on the sample
+Assert the serve vector cannot include the label or other leakage fields (e.g. cancel reason, churn date)
+Fail non-zero when contracts break so CI and pipeline stages can block
+Prove train and serve feature builders emit the same columns/dtypes for the same raw row
+4. Make runs reproducible
+Separate code history from data/model bytes:
+Use Git for code; use DVC (or equivalent data versioning) for datasets and heavy artifacts
+Configure a remote (a local folder remote is fine; document how S3/GCS would replace it)
+Express the pipeline in dvc.yaml (e.g. prepare → train → evaluate) so dvc repro rebuilds what changed
+Capture lineage (dvc dag or equivalent) in docs/lineage.md
+Change one hyperparameter, re-run, and show the new run is traceable via commit + lockfile
+A simple baseline model (logistic regression or small gradient boosting) is enough. Quality of engineering beats leaderboard score.
+5. Track experiments and gate promotion
+With MLflow (local tracking URI is fine):
+Log params, metrics (include at least one ranking/quality metric such as PR-AUC or ROC-AUC, plus precision at a fixed recall if useful for “catch churners without spamming everyone”), and artifacts (model, feature list, a plot or confusion matrix)
+Record which dataset was used (path + DVC hash/digest)
+Attach a model signature and input example
+Keep thresholds in config (tune them to your sample and justify the numbers)
+On pass only: register the model and set an alias the API will read; document that @production / Production is protected
+6. Ship through trunk-based Git and CI
+Short-lived branch → PR into main
+Conventional commits (feat:, fix:, ci:, docs:, …)
+PR body: problem, approach, how to run, risks, evidence of green checks
+CI installs from the lockfile, runs lint/typecheck/tests, runs the data quality gate on the sample, and uploads useful artifacts (test report, metrics JSON). Building the image in CI is a plus.
+Write the branch protection policy you expect on main in docs/branch-protection.md (required checks, no direct push), even if the exercise remote cannot enforce it
+7. Containerise the scoring service
+Expose POST /score (FastAPI or Flask) that loads the model from the configured alias or mounted artifact and returns churn_risk + model_version.
+Dockerfile expectations:
+Multi-stage build, deps layered for cache, non-root runtime user
+Pin base image tags (digest preferred); note how image scanning (Trivy/Grype) fits in CI — run it if you can, otherwise document the job
+Short SBOM awareness in docs/containers.md (what it is; one command you would use, e.g. Syft)
+README or compose instructions plus a sample curl
+Walkthrough (with reviewer)
+Be ready to tell the story in order:
+Point to lineage: raw sample → pipeline stage → MLflow run → registry alias → container that answered your curl.
+Show where leakage would have crept in (label or post-churn fields) and which gate stops it.
+Explain how dev / ci / prod differ for this service.
+Name one trade-off you made for the timebox, and what you would add first for true in-session use (feature freshness, canary, rollback via alias, offer-policy layer on top of the score, etc.).
+How you will be scored
+Reviewers score the whole system, not isolated chapters. Rough weights:
+Signal
+Weight
+Coherent production story (lifecycle, roles, envs, DoD)
+10%
+Repo hygiene (packaging, pins, venv, lint, types, tests, secrets)
+15%
+Safe data path (schema, DQ, leakage, train/serve consistency)
+15%
+Reproducibility (Git vs data versioning, pipeline stages, lineage)
+15%
+Experimentation & promotion discipline (tracking, signature, thresholds, aliases)
+15%
+Collaboration path (trunk-based PR, conventional commits, CI, protections)
+15%
+Operable service (multi-stage non-root image, scan/SBOM awareness, working `/score`)
+15%
+
+Pass: about 70%+ overall, with no critical miss on secrets in git, label leakage into serve, or promoting a model that never cleared a threshold.
+Out of scope
+Skip these unless you finish early:
+Heavy model search or exotic architectures  
+Full feature store, Kafka, or Kubernetes  
+Rich production monitoring (a paragraph in the design note is enough)  
+Scheduled retrain automation  
+The CRM / offer decisioning that consumes the score (mention only)
+Stretch (optional): canary alias + rollback sketch; SBOM attached in CI; a simple train-vs-shadow drift check on sessions_7d / watch_hours_7d.
+Submit
+PR into main with green CI  
+README that can take a stranger from zero to curl  
+docs/design.md, docs/lineage.md, docs/branch-protection.md, docs/containers.md  
+Demo pointers: reproducible pipeline command, MLflow run id (or UI), alias used in the live API, threshold that allowed promotion  
+One example request/response from /score
+Facilitator notes (interviewer only — do not share)
+Pre-seed a sample parquet and a thin repo skeleton so the exercise fits 4–6 hours.  
+Grade evidence of process (locks, gates, lineage, aliases) harder than AUC.  
+Red flags: churned_30d or cancel metadata in serve schema; credentials committed; notebook as the only artifact; Docker as root on latest with no health/rollback story.  
+Strong signal: one shared feature module; CI blocks on data contracts; promotion only via alias after thresholds.  
+This brief is intentionally parallel to the PaySafe fraud assessment but domain-distinct — do not reuse fraud sample data or copy solution notes across candidates.
