@@ -10,4 +10,4 @@ thresholds:
 
 registry:
   model_name: streamly_churn_model   # Central registered model name in MLflow
-  target_alias: champion             # Active serving alias (@champion or @production)
+  target_alias: challenger           # CI-safe default; champion requires manual approval

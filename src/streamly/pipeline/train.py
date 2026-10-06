@@ -12,17 +12,15 @@ from typing import Any
 
 import joblib
 import pandas as pd
-import yaml
 
+from streamly.config import TrainConfig, load_pipeline_config
 from streamly.features.builder import build_training_features
 from streamly.models.baseline import create_model_pipeline
 
 
-def load_params(params_path: Path = Path("params.yaml")) -> dict[str, Any]:
-    """Load training parameters from params.yaml."""
-    with open(params_path, encoding="utf-8") as f:
-        params = yaml.safe_load(f)
-    return params.get("train", {})  # type: ignore[no-any-return]
+def load_params(params_path: Path = Path("params.yaml")) -> TrainConfig:
+    """Load validated training parameters from params.yaml."""
+    return load_pipeline_config(params_path).train
 
 
 def run_train(
@@ -44,14 +42,14 @@ def run_train(
 
     # 2. Load hyperparameters
     params = load_params(params_path)
-    model_type = str(params.get("model_type", "logistic_regression"))
-    random_state = int(params.get("random_state", 42))
+    model_type = params.model_type
+    random_state = params.random_state
 
     # 3. Instantiate pipeline via shared model factory
     print(f"[train] Fitting Scikit-Learn Pipeline (type={model_type}, random_state={random_state})...")
-    extra_kwargs = {
-        k: v for k, v in params.items() if k not in ("model_type", "random_state")
-    }
+    extra_kwargs: dict[str, Any] = params.model_dump(
+        exclude={"model_type", "random_state"}
+    )
     pipeline = create_model_pipeline(
         model_type=model_type,
         random_state=random_state,

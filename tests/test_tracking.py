@@ -65,7 +65,16 @@ def test_run_experiment_logs_complete_metadata(
     params_path = tmp_path / "params.yaml"
     params_content = {
         "prepare": {"test_size": 0.20, "random_state": 42},
-        "train": {"random_state": 42, "max_iter": 500, "solver": "lbfgs"},
+        "train": {
+            "model_type": "logistic_regression",
+            "random_state": 42,
+            "max_iter": 500,
+            "solver": "lbfgs",
+            "learning_rate": 0.05,
+            "max_depth": 4,
+            "n_estimators": 100,
+            "min_samples_leaf": 10,
+        },
         "evaluate": {"threshold": 0.50, "target_recall": 0.60},
     }
     with open(params_path, "w", encoding="utf-8") as f:
@@ -105,3 +114,8 @@ def test_run_experiment_logs_complete_metadata(
     # Verify Lineage Tags
     assert run.data.tags["dataset_path"] == str(data_path)
     assert "dataset_dvc_hash" in run.data.tags
+
+    # Verify native MLflow dataset lineage (visible in the Dataset UI column)
+    assert run.inputs is not None
+    assert len(run.inputs.dataset_inputs) == 1
+    assert run.inputs.dataset_inputs[0].dataset.name == "streamly_churn_snapshot"
