@@ -22,7 +22,8 @@ Streamly follows **Trunk-Based Development** with short-lived feature branches:
 
 ## 2. GitHub Branch Protection Policy for `main`
 
-The following settings are configured on the `main` branch:
+The following settings are the expected protection policy for the `main` branch (and should be
+enforced in GitHub wherever repository permissions allow):
 
 | Policy Setting | Value | Rationale |
 | :--- | :--- | :--- |
@@ -44,7 +45,7 @@ Before a PR can be merged into `main`, the following automated jobs must report 
    - `ruff check .` (zero linting or syntax defects).
    - `mypy src tests --strict` (zero type contract violations).
    - `python -m streamly.data.validation` (asserts raw sample adheres to Pandera data contract and prevents leakage).
-   - `pytest` (asserts all 54 unit and integration tests pass, including sub-200ms API latency).
+   - `pytest` (asserts all unit and integration tests pass, including sub-200ms API latency).
 2. **`Multi-stage Docker Build Verification`**:
    - Proves container compiles from `uv.lock` and packages clean without dependency conflicts.
 
@@ -55,5 +56,5 @@ Before a PR can be merged into `main`, the following automated jobs must report 
 Just as `main` is protected from unreviewed code, the **`@champion`** and **`@production`** aliases in the MLflow Model Registry are protected assets:
 
 - **Automated Gating**: Models can only receive the `@challenger` alias automatically upon clearing `configs/thresholds.yaml` in CI.
-- **Promotion to `@champion`**: Requires manual sign-off by the Lead ML Engineer and Product Owner following shadow scoring comparison and drift verification.
+- **Promotion to `@champion`**: Requires manual sign-off by the Lead ML Engineer and Product Owner, followed by an explicit `promotion --alias champion` command.
 - **Audit Lineage**: Every alias assignment is recorded in the immutable MLflow backend with `run_id`, committing author, and timestamp.

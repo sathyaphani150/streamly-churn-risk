@@ -54,7 +54,9 @@ Containers executing as `root` represent a critical security vulnerability (cont
 
 ## 3. Vulnerability Scanning (Trivy & Grype)
 
-Image vulnerability scanning is integrated into the automated CI pipeline before any image is tagged or pushed to a container registry.
+The assessment CI builds the image, verifies non-root execution, checks `/health`, and calls
+`/score`. A production delivery pipeline should add vulnerability scanning before an image is
+tagged or pushed to a registry; the command below is the proposed blocking job.
 
 ### Recommended CI Command (Trivy)
 ```bash
@@ -82,7 +84,8 @@ syft streamly-churn:latest -o spdx-json=sbom.spdx.json
 syft streamly-churn:latest
 ```
 
-The resulting `sbom.spdx.json` is archived as a build artifact in CI alongside the container image digest.
+The resulting `sbom.spdx.json` should be archived as a CI artifact alongside the container image
+digest. SBOM generation is documented for this assessment but is not currently executed by CI.
 
 ---
 
@@ -121,3 +124,20 @@ curl -X POST http://localhost:8000/score \
     "price_increase_flag": 0
   }'
 ```
+
+When connected to MLflow, `model_version` reports the configured alias, such as
+`streamly_churn_model@champion`. The self-contained fallback reports the exact artifact digest as
+`local:baseline_model.joblib@sha256:<digest>`, so the response still identifies immutable model
+bytes when a registry is unavailable.
+
+Verified standalone-container response:
+
+```json
+{
+  "member_id": "demo_member",
+  "churn_risk": 0.4336,
+  "model_version": "local:baseline_model.joblib@sha256:307981abb90b3f20f8d6fea53b0e6885beffb85965fec0b90ec2845e8c4204c6"
+}
+```
+
+The same verification confirmed that the running process uses UID `10001`.

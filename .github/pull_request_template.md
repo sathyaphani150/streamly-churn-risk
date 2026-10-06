@@ -18,6 +18,6 @@ Streamly requires near-real-time churn risk prediction (<200ms) with anti-leakag
 - Container cold start: mitigated by lifespan pre-warming.
 
 ## Evidence
-- All 54 unit & integration tests passing.
+- All unit and integration tests passing.
 - Ruff & strict Mypy clean.
 - Multi-stage non-root container builds and passes /health probe.
