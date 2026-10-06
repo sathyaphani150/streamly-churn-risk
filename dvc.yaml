@@ -3,6 +3,7 @@ stages:
     cmd: python -m streamly.pipeline.prepare
     deps:
       - data/raw/streamly_churn_sample.parquet
+      - src/streamly/config.py
       - src/streamly/data/validation.py
       - src/streamly/pipeline/prepare.py
     params:
@@ -16,10 +17,17 @@ stages:
     cmd: python -m streamly.pipeline.train
     deps:
       - data/processed/train.parquet
+      - src/streamly/config.py
       - src/streamly/features/builder.py
+      - src/streamly/models/baseline.py
       - src/streamly/pipeline/train.py
     params:
+      - train.learning_rate
+      - train.max_depth
       - train.max_iter
+      - train.min_samples_leaf
+      - train.model_type
+      - train.n_estimators
       - train.random_state
       - train.solver
     outs:
@@ -30,6 +38,7 @@ stages:
     deps:
       - data/processed/test.parquet
       - models/baseline_model.joblib
+      - src/streamly/config.py
       - src/streamly/features/builder.py
       - src/streamly/models/evaluation.py
       - src/streamly/pipeline/evaluate.py
