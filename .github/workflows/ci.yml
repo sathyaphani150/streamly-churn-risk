@@ -85,7 +85,8 @@ jobs:
       - name: Verify Non-Root Container Health and Scoring
         run: |
           docker run -d --name streamly-svc -p 8080:8000 streamly-churn:ci-test
-          curl --retry 10 --retry-delay 2 --retry-connrefused -f http://127.0.0.1:8080/health
+          curl --retry 15 --retry-delay 2 --retry-all-errors --fail \
+            http://127.0.0.1:8080/health
           test "$(docker exec streamly-svc id -u)" = "10001"
           curl --fail --output score-response.json \
             --header "Content-Type: application/json" \
