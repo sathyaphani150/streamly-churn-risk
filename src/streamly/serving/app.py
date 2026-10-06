@@ -8,6 +8,7 @@ Exposes:
 
 from __future__ import annotations
 
+import hashlib
 import os
 import sys
 import time
@@ -69,6 +70,13 @@ class HealthResponse(BaseModel):
     model_loaded: bool
 
 
+def local_artifact_version(artifact_path: Path) -> str:
+    """Return an immutable SHA-256 identifier for a local model artifact."""
+    with open(artifact_path, "rb") as artifact_file:
+        digest = hashlib.file_digest(artifact_file, "sha256").hexdigest()
+    return f"local:{artifact_path.name}@sha256:{digest}"
+
+
 def load_scoring_model() -> tuple[Any, str]:
     """Load model artifact from MLflow Model Registry via alias or local fallback.
 
@@ -106,7 +114,7 @@ def load_scoring_model() -> tuple[Any, str]:
     # 2. Resilient fallback path: Local serialised artifact (for air-gapped / test environments)
     if local_artifact_path.exists():
         model = joblib.load(local_artifact_path)
-        version_tag = f"local_file:{local_artifact_path.name}"
+        version_tag = local_artifact_version(local_artifact_path)
         print(f"[serving] Loaded fallback model from {local_artifact_path}")
         return model, version_tag
 
