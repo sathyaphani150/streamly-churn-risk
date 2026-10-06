@@ -10,17 +10,15 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import yaml
 from sklearn.model_selection import train_test_split
 
+from streamly.config import PrepareConfig, load_pipeline_config
 from streamly.data.validation import validate_training_data
 
 
-def load_params(params_path: Path = Path("params.yaml")) -> dict[str, float | int]:
-    """Load preparation parameters from params.yaml."""
-    with open(params_path, encoding="utf-8") as f:
-        params = yaml.safe_load(f)
-    return params.get("prepare", {})  # type: ignore[no-any-return]
+def load_params(params_path: Path = Path("params.yaml")) -> PrepareConfig:
+    """Load validated preparation parameters from params.yaml."""
+    return load_pipeline_config(params_path).prepare
 
 
 def run_prepare(
@@ -42,8 +40,8 @@ def run_prepare(
 
     # 2. Load hyperparameters
     params = load_params(params_path)
-    test_size = float(params.get("test_size", 0.20))
-    random_state = int(params.get("random_state", 42))
+    test_size = params.test_size
+    random_state = params.random_state
 
     # 3. Stratified split
     print(f"[prepare] Splitting into train/test (test_size={test_size}, seed={random_state})...")

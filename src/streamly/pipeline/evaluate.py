@@ -9,21 +9,18 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
 
 import joblib
 import pandas as pd
-import yaml
 
+from streamly.config import EvaluateConfig, load_pipeline_config
 from streamly.features.builder import build_training_features
 from streamly.models.evaluation import evaluate_predictions
 
 
-def load_params(params_path: Path = Path("params.yaml")) -> dict[str, Any]:
-    """Load evaluation parameters from params.yaml."""
-    with open(params_path, encoding="utf-8") as f:
-        params = yaml.safe_load(f)
-    return params.get("evaluate", {})  # type: ignore[no-any-return]
+def load_params(params_path: Path = Path("params.yaml")) -> EvaluateConfig:
+    """Load validated evaluation parameters from params.yaml."""
+    return load_pipeline_config(params_path).evaluate
 
 
 def run_evaluate(
@@ -54,8 +51,8 @@ def run_evaluate(
 
     # 3. Load parameters & evaluate
     params = load_params(params_path)
-    threshold = float(params.get("threshold", 0.50))
-    target_recall = float(params.get("target_recall", 0.60))
+    threshold = params.threshold
+    target_recall = params.target_recall
 
     metrics = evaluate_predictions(
         y_true=y_test,

@@ -13,8 +13,9 @@ from pathlib import Path
 from typing import Any, Final
 
 import mlflow
-import yaml
 from mlflow.tracking import MlflowClient
+
+from streamly.config import load_promotion_settings
 
 DEFAULT_THRESHOLDS_PATH: Final[Path] = Path("configs/thresholds.yaml")
 
@@ -32,13 +33,7 @@ def load_promotion_config(config_path: Path = DEFAULT_THRESHOLDS_PATH) -> dict[s
     Returns:
         dict containing 'thresholds' and 'registry' blocks.
     """
-    if not config_path.exists():
-        raise FileNotFoundError(f"Promotion config not found at: {config_path}")
-
-    with open(config_path, encoding="utf-8") as f:
-        config: dict[str, Any] = yaml.safe_load(f)
-
-    return config
+    return load_promotion_settings(config_path).model_dump()
 
 
 def evaluate_quality_gate(
@@ -109,7 +104,7 @@ def evaluate_quality_gate(
 def promote_model_to_registry(
     run_id: str,
     model_name: str,
-    target_alias: str = "champion",
+    target_alias: str = "challenger",
     tracking_uri: str | None = None,
 ) -> str:
     """Register trained model artifact and assign deployment alias in MLflow Registry.
@@ -185,7 +180,9 @@ def gate_and_promote(
     registry_cfg = config.get("registry", {})
 
     model_name = os.getenv("MODEL_NAME") or registry_cfg.get("model_name", "streamly_churn_model")
-    effective_alias = target_alias or os.getenv("MODEL_REGISTRY_ALIAS") or registry_cfg.get("target_alias", "champion")
+    effective_alias = target_alias or os.getenv("MODEL_REGISTRY_ALIAS") or registry_cfg.get(
+        "target_alias", "challenger"
+    )
 
     # 3. Evaluate Quality Gate
     all_passed, checks = evaluate_quality_gate(actual_metrics, thresholds)

@@ -13,12 +13,14 @@ from pathlib import Path
 from typing import Any
 
 import mlflow
+import mlflow.data
 import mlflow.models
 import mlflow.sklearn
 import numpy as np
 import pandas as pd
 import yaml
 
+from streamly.config import load_pipeline_config
 from streamly.features.builder import FEATURE_COLUMNS, build_training_features
 from streamly.models.baseline import create_model_pipeline, split_data
 from streamly.models.evaluation import evaluate_predictions
@@ -71,16 +73,14 @@ def run_experiment(
     mlflow.set_tracking_uri(uri)
     mlflow.set_experiment(exp_name)
 
-    # 2. Load parameters
-    with open(params_path, encoding="utf-8") as f:
-        params: dict[str, Any] = yaml.safe_load(f)
-
-    test_size = float(params.get("prepare", {}).get("test_size", 0.20))
-    train_params: dict[str, Any] = params.get("train", {})
-    effective_model_type = model_type or str(train_params.get("model_type", "logistic_regression"))
-    random_state = int(train_params.get("random_state", 42))
-    threshold = float(params.get("evaluate", {}).get("threshold", 0.50))
-    target_recall = float(params.get("evaluate", {}).get("target_recall", 0.60))
+    # 2. Load and validate parameters
+    params = load_pipeline_config(params_path)
+    test_size = params.prepare.test_size
+    train_params = params.train
+    effective_model_type = model_type or train_params.model_type
+    random_state = train_params.random_state
+    threshold = params.evaluate.threshold
+    target_recall = params.evaluate.target_recall
 
     # 3. Load data and transform via shared feature builder
     raw_df = pd.read_parquet(data_path)
@@ -92,6 +92,12 @@ def run_experiment(
 
     # 4. Get dataset lineage hash from DVC
     dvc_hash = get_dataset_dvc_hash()
+    mlflow_dataset = mlflow.data.from_pandas(  # type: ignore[attr-defined]
+        raw_df,
+        source=str(data_path.resolve()),
+        targets="churned_30d",
+        name="streamly_churn_snapshot",
+    )
 
     # 5. Start tracked MLflow Run
     with mlflow.start_run(run_name=run_name) as run:
@@ -110,16 +116,16 @@ def run_experiment(
         }
         if effective_model_type in ("logistic_regression", "lr", "baseline"):
             logged_params["scaler"] = "StandardScaler"
-            logged_params["max_iter"] = int(train_params.get("max_iter", 1000))
-            logged_params["solver"] = str(train_params.get("solver", "lbfgs"))
+            logged_params["max_iter"] = train_params.max_iter
+            logged_params["solver"] = train_params.solver
         elif effective_model_type in ("gradient_boosting", "hist_gradient_boosting", "hgb"):
-            logged_params["max_iter"] = int(train_params.get("max_iter", 100))
-            logged_params["learning_rate"] = float(train_params.get("learning_rate", 0.05))
-            logged_params["max_depth"] = int(train_params.get("max_depth", 4))
+            logged_params["max_iter"] = train_params.max_iter
+            logged_params["learning_rate"] = train_params.learning_rate
+            logged_params["max_depth"] = train_params.max_depth
         elif effective_model_type in ("random_forest", "rf"):
-            logged_params["n_estimators"] = int(train_params.get("n_estimators", 100))
-            logged_params["max_depth"] = int(train_params.get("max_depth", 6))
-            logged_params["min_samples_leaf"] = int(train_params.get("min_samples_leaf", 10))
+            logged_params["n_estimators"] = train_params.n_estimators
+            logged_params["max_depth"] = train_params.max_depth
+            logged_params["min_samples_leaf"] = train_params.min_samples_leaf
 
         mlflow.log_params(logged_params)
 
@@ -133,11 +139,12 @@ def run_experiment(
                 "author": "Streamly ML Engineering",
             }
         )
+        mlflow.log_input(mlflow_dataset, context="training")
 
         # C. Train Model Pipeline
-        extra_kwargs = {
-            k: v for k, v in train_params.items() if k not in ("model_type", "random_state")
-        }
+        extra_kwargs: dict[str, Any] = train_params.model_dump(
+            exclude={"model_type", "random_state"}
+        )
         pipeline = create_model_pipeline(
             model_type=effective_model_type,
             random_state=random_state,

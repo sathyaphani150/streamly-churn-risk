@@ -7,14 +7,18 @@ stages:
       hash: md5
       md5: 275ac17edd883e88de83ee71589d2b92
       size: 136614
+    - path: src/streamly/config.py
+      hash: md5
+      md5: 02beadf5d6f8e7b888668af2d11ab206
+      size: 2990
     - path: src/streamly/data/validation.py
       hash: md5
-      md5: 5f0256f47229bc6bde7fe955c3045b49
-      size: 7137
+      md5: 6b65f33af3c24702b0ed3095fb52e18a
+      size: 7178
     - path: src/streamly/pipeline/prepare.py
       hash: md5
-      md5: e12de566849bb8f75659bfb963d1a74e
-      size: 2337
+      md5: e0d005ac01eaf822ea5b78fcf0f2cf0f
+      size: 2253
     params:
       params.yaml:
         prepare.random_state: 42
@@ -35,17 +39,30 @@ stages:
       hash: md5
       md5: bf50285fcdea595ecae43a7f53dc507b
       size: 112264
+    - path: src/streamly/config.py
+      hash: md5
+      md5: 02beadf5d6f8e7b888668af2d11ab206
+      size: 2990
     - path: src/streamly/features/builder.py
       hash: md5
       md5: 02924a4604aa3291b18d2146565d0724
       size: 4833
+    - path: src/streamly/models/baseline.py
+      hash: md5
+      md5: d7d6e870d7552baa0c30ba37bb29c5c4
+      size: 8161
     - path: src/streamly/pipeline/train.py
       hash: md5
-      md5: 1de1ed5439b337b132b2eaff8521ea26
-      size: 2389
+      md5: 20a934a2ee244293eced36f13b51fd46
+      size: 2291
     params:
       params.yaml:
+        train.learning_rate: 0.05
+        train.max_depth: 4
         train.max_iter: 1000
+        train.min_samples_leaf: 10
+        train.model_type: logistic_regression
+        train.n_estimators: 100
         train.random_state: 42
         train.solver: lbfgs
     outs:
@@ -64,6 +81,10 @@ stages:
       hash: md5
       md5: 9133764b5d2c721e412bf898b49c24cf
       size: 2033
+    - path: src/streamly/config.py
+      hash: md5
+      md5: 02beadf5d6f8e7b888668af2d11ab206
+      size: 2990
     - path: src/streamly/features/builder.py
       hash: md5
       md5: 02924a4604aa3291b18d2146565d0724
@@ -74,8 +95,8 @@ stages:
       size: 3466
     - path: src/streamly/pipeline/evaluate.py
       hash: md5
-      md5: e7ee1ddb85cda5d10526516324b7ed97
-      size: 2514
+      md5: 78d9ed8076c84b3886832446bf24e1ad
+      size: 2413
     params:
       params.yaml:
         evaluate.target_recall: 0.6

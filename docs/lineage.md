@@ -48,7 +48,7 @@ The lineage architecture links version-controlled Git source code, DVC-tracked d
 
 ## 2. DVC Pipeline Directed Acyclic Graph (DAG)
 
-The declared execution stages in [`dvc.yaml`](file:///c:/Users/Sathya%20Rudrakshala/Desktop/mlops_poc/dvc.yaml) form a deterministic DAG:
+The declared execution stages in [`dvc.yaml`](../dvc.yaml) form a deterministic DAG:
 
 ```
 +--------------------------------------------+ 
@@ -79,12 +79,27 @@ The declared execution stages in [`dvc.yaml`](file:///c:/Users/Sathya%20Rudraksh
 | Stage | Input Dependencies (`deps`) | Parameter Dependencies (`params`) | Generated Outputs (`outs`) |
 | :--- | :--- | :--- | :--- |
 | **`prepare`** | `data/raw/streamly_churn_sample.parquet`, `src/streamly/pipeline/prepare.py` | `prepare.test_size`, `prepare.random_state` | `data/processed/train.parquet`, `data/processed/test.parquet` |
-| **`train`** | `data/processed/train.parquet`, `src/streamly/pipeline/train.py`, `src/streamly/models/baseline.py`, `src/streamly/features/builder.py` | `train.random_state`, `train.max_iter`, `train.solver`, `train.model_type` | `models/baseline_model.joblib` |
+| **`train`** | `data/processed/train.parquet`, `src/streamly/pipeline/train.py`, `src/streamly/models/baseline.py`, `src/streamly/features/builder.py` | `train.model_type`, `train.random_state`, and all model hyperparameters | `models/baseline_model.joblib` |
 | **`evaluate`** | `data/processed/test.parquet`, `models/baseline_model.joblib`, `src/streamly/pipeline/evaluate.py`, `src/streamly/models/evaluation.py` | `evaluate.threshold`, `evaluate.target_recall` | `metrics.json` |
 
 ---
 
 ## 3. How to Verify Lineage Locally
+
+### Fresh-clone data materialization
+
+The configured assessment remote (`../.dvc_remote`) is deliberately local and is not available
+to somebody cloning the Git repository on another machine. A reviewer can reproduce the exact
+sample from its source code and fixed seed before running the DVC pipeline:
+
+```bash
+uv run python -m streamly.data.make_dataset
+uv run dvc repro
+uv run dvc status
+```
+
+The final command must print `Data and pipelines are up to date.` In a real shared environment,
+the first command would be replaced by `dvc pull` from an access-controlled S3/GCS remote.
 
 ### 1. Inspect Pipeline Reproducibility
 ```bash

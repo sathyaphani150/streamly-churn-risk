@@ -12,12 +12,22 @@ Verifies:
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Generator
+from pathlib import Path
 
+import joblib
 import pytest
 from fastapi.testclient import TestClient
 
-from streamly.serving.app import app
+from streamly.serving.app import app, load_scoring_model
+
+
+def is_valid_model_version(version: str) -> bool:
+    """Accept a registry alias or an immutable local artifact digest."""
+    return version.startswith("streamly_churn_model@") or bool(
+        re.fullmatch(r"local:.+@sha256:[0-9a-f]{64}", version)
+    )
 
 
 @pytest.fixture(scope="module")
@@ -38,7 +48,7 @@ def test_health_check_endpoint(client: TestClient) -> None:
     data = response.json()
     assert data["status"] == "healthy"
     assert data["model_loaded"] is True
-    assert "streamly_churn_model" in data["model_version"]
+    assert is_valid_model_version(data["model_version"])
     assert "X-Process-Time-Ms" in response.headers
 
 
@@ -68,7 +78,7 @@ def test_score_valid_payload(client: TestClient) -> None:
     assert data["member_id"] == "mem_0042"
     assert isinstance(data["churn_risk"], float)
     assert 0.0 <= data["churn_risk"] <= 1.0
-    assert "streamly_churn_model" in data["model_version"]
+    assert is_valid_model_version(data["model_version"])
 
     # Verify latency constraint: execution duration header must be under 200ms
     duration_ms = float(response.headers["X-Process-Time-Ms"])
@@ -139,3 +149,19 @@ def test_score_rejects_negative_values(client: TestClient) -> None:
 
     response = client.post("/score", json=payload)
     assert response.status_code == 422
+
+
+def test_local_fallback_has_immutable_sha256_version(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Local fallback responses must identify the exact model artifact bytes."""
+    artifact_path = tmp_path / "test-model.joblib"
+    joblib.dump({"model": "test"}, artifact_path)
+
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{tmp_path / 'missing.db'}")
+    monkeypatch.setenv("MODEL_ARTIFACT_PATH", str(artifact_path))
+
+    model, version = load_scoring_model()
+
+    assert model == {"model": "test"}
+    assert re.fullmatch(r"local:test-model\.joblib@sha256:[0-9a-f]{64}", version)

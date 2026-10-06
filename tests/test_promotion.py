@@ -82,7 +82,12 @@ def test_load_promotion_config_success(tmp_path: Path) -> None:
     """Correctly loads thresholds and registry configuration from YAML."""
     config_file = tmp_path / "thresholds.yaml"
     content = {
-        "thresholds": {"min_roc_auc": 0.75},
+        "thresholds": {
+            "min_roc_auc": 0.75,
+            "min_pr_auc": 0.60,
+            "min_precision_at_recall_60": 0.55,
+            "max_brier_score": 0.20,
+        },
         "registry": {"model_name": "test_model", "target_alias": "champion"},
     }
     with open(config_file, "w", encoding="utf-8") as f:
@@ -120,6 +125,8 @@ def test_gate_and_promote_rejects_substandard_run(tmp_path: Path) -> None:
                 "thresholds": {
                     "min_roc_auc": 0.75,
                     "min_pr_auc": 0.60,
+                    "min_precision_at_recall_60": 0.55,
+                    "max_brier_score": 0.20,
                 },
                 "registry": {"model_name": "gated_model", "target_alias": "champion"},
             },
@@ -162,7 +169,12 @@ def test_gate_and_promote_custom_challenger_alias(tmp_path: Path) -> None:
     with open(config_path, "w", encoding="utf-8") as f:
         yaml.dump(
             {
-                "thresholds": {"min_roc_auc": 0.75, "min_pr_auc": 0.60},
+                "thresholds": {
+                    "min_roc_auc": 0.75,
+                    "min_pr_auc": 0.60,
+                    "min_precision_at_recall_60": 0.55,
+                    "max_brier_score": 0.20,
+                },
                 "registry": {"model_name": "test_challenger_model", "target_alias": "champion"},
             },
             f,

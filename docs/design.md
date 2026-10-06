@@ -34,11 +34,11 @@ This document describes the production architecture, ownership model, repository
 
 ### End-to-End Operational Lifecycle:
 1. **Raw Extract & Ingestion**: Data Engineering generates daily snapshots of member engagement. The raw dataset is tracked via DVC (`data/raw/streamly_churn_sample.parquet.dvc`), keeping large binary files out of Git.
-2. **Schema Contract Gate**: Pandera schemas ([`validation.py`](file:///c:/Users/Sathya%20Rudrakshala/Desktop/mlops_poc/src/streamly/data/validation.py)) validate types, ranges, non-nullability, and controlled vocabularies (`basic`, `standard`, `premium`). Any future label leakage (e.g. `churned_30d` or cancellation reasons in serving data) is blocked with non-zero exit codes.
+2. **Schema Contract Gate**: Pandera schemas ([`validation.py`](../src/streamly/data/validation.py)) validate types, ranges, non-nullability, and controlled vocabularies (`basic`, `standard`, `premium`). Any future label leakage (e.g. `churned_30d` or cancellation reasons in serving data) is blocked with non-zero exit codes.
 3. **Reproducible Pipeline**: DVC orchestrates `prepare` (80/20 stratified split) $\rightarrow$ `train` $\rightarrow$ `evaluate`.
 4. **Experiment Tracking**: MLflow tracks all candidate hyperparameters, evaluation metrics (ROC-AUC, PR-AUC, Precision@Recall $\ge$ 60%, Brier Score), confusion matrices, and the cryptographic DVC dataset hash lineage tag.
-5. **Quality Gate & Promotion**: The candidate model is evaluated against [`configs/thresholds.yaml`](file:///c:/Users/Sathya%20Rudrakshala/Desktop/mlops_poc/configs/thresholds.yaml). Only models clearing all thresholds are registered in the MLflow Model Registry and assigned deployment aliases (`@champion` or `@challenger`).
-6. **Low-Latency Serving**: A containerized FastAPI service loads `models:/streamly_churn_model@champion`, transforms raw request JSON via the shared [`build_serving_features`](file:///c:/Users/Sathya%20Rudrakshala/Desktop/mlops_poc/src/streamly/features/builder.py#L127) function, and returns churn risk probabilities in $< 50\text{ ms}$.
+5. **Quality Gate & Promotion**: The candidate model is evaluated against [`configs/thresholds.yaml`](../configs/thresholds.yaml). Passing automation may assign `@challenger`; moving an approved run to the production `@champion` alias requires manual owner sign-off.
+6. **Low-Latency Serving**: A containerized FastAPI service loads `models:/streamly_churn_model@champion`, transforms raw request JSON via the shared [`build_serving_features`](../src/streamly/features/builder.py) function, and enforces the 200 ms scoring target.
 7. **Lightweight Monitoring**: The service logs request latency via the `X-Process-Time-Ms` header, while `/health` provides readiness/liveness status for orchestrators.
 
 ---
@@ -80,7 +80,7 @@ mlops_poc/
 │   ├── pipeline/                  # DVC pipeline stages (prepare, train, evaluate)
 │   ├── tracking/                  # MLflow experiment tracking & promotion quality gate
 │   └── serving/                   # FastAPI real-time scoring microservice (POST /score)
-├── tests/                         # 54 comprehensive unit & integration tests
+├── tests/                         # Unit and integration tests for all critical gates
 ├── .dockerignore                  # Docker build cache and file exclusions
 ├── .env.example                   # Environment configuration template (zero secrets in Git)
 ├── Dockerfile                     # Multi-stage, non-root hardened production image
@@ -120,6 +120,6 @@ Before any model or code modification is released to production, all items must 
 - [x] **Lineage & Artifact Audit**: MLflow logs parameters, scalar metrics, confusion matrix, signature, and DVC hash.
 - [x] **Passed Promotion Gate**: Candidate model meets all metric thresholds in `configs/thresholds.yaml`.
 - [x] **Protected Registry Aliasing**: Assigned `@champion` (active) and `@challenger` (shadow).
-- [x] **Sub-200ms Scoring SLA**: Microservice answers `POST /score` in $< 50\text{ ms}$ with latency tracking.
+- [x] **Sub-200ms Scoring SLA**: Microservice tests enforce the `POST /score` latency budget and expose request timing.
 - [x] **Hardened Container**: Built via multi-stage Dockerfile, executes under unprivileged non-root user `appuser`.
 - [x] **Automated CI & Branch Protection**: Green CI running lint, types, contracts, test suite, and Docker build.
