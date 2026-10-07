@@ -11,10 +11,10 @@
 # ------------------------------------------------------------------------------
 # Stage 1: Build & Dependency Resolution
 # ------------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS builder
+FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89 AS builder
 
 # Install uv directly from verified official multi-arch binary
-COPY --from=ghcr.io/astral-sh/uv:0.6.1 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.6.1@sha256:90daa0b4d74ea55c7b8e06d25d3826b1eac66e7994387248e6173dd2b66668e2 /uv /uvx /bin/
 
 WORKDIR /app
 
@@ -42,18 +42,20 @@ RUN /app/.venv/bin/python -m streamly.data.make_dataset && \
 # ------------------------------------------------------------------------------
 # Stage 2: Minimal Hardened Runtime
 # ------------------------------------------------------------------------------
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89 AS runtime
 
 WORKDIR /app
+
+# Package installers and their vendored build libraries are unnecessary at
+# runtime. Removing them reduces both attack surface and fixable CVEs.
+RUN python -m pip uninstall --yes pip setuptools wheel
 
 # Configure hardened runtime environment
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app/src" \
-    STREAMLY_ENV="prod" \
-    MODEL_NAME="streamly_churn_model" \
-    MODEL_REGISTRY_ALIAS="champion"
+    STREAMLY_ENV="prod"
 
 # Create dedicated non-root user and group (Principle of Least Privilege)
 RUN groupadd --gid 10001 appgroup && \
@@ -63,6 +65,7 @@ RUN groupadd --gid 10001 appgroup && \
 COPY --from=builder --chown=appuser:appgroup /app/.venv /app/.venv
 COPY --chown=appuser:appgroup src/ /app/src/
 COPY --chown=appuser:appgroup configs/ ./configs/
+COPY --chown=appuser:appgroup scripts/smoke_test.py /app/scripts/smoke_test.py
 COPY --chown=appuser:appgroup params.yaml ./
 
 # Copy fallback model artifact generated during build

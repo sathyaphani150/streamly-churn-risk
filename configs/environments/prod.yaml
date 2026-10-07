@@ -1,0 +1,9 @@
+environment: prod
+# Production must supply MLFLOW_TRACKING_URI at runtime; do not commit credentials.
+mlflow_tracking_uri: null
+mlflow_experiment_name: streamly-churn-risk
+model_name: streamly_churn_model
+model_registry_alias: champion
+model_artifact_path: models/baseline_model.joblib
+allow_local_model_fallback: false
+log_level: WARNING

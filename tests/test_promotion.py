@@ -18,7 +18,16 @@ from streamly.tracking.promotion import (
     evaluate_quality_gate,
     gate_and_promote,
     load_promotion_config,
+    validate_promotion_authorization,
 )
+
+
+@pytest.fixture(autouse=True)
+def use_development_governance_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep promotion tests independent from the caller's shell environment."""
+    monkeypatch.setenv("STREAMLY_ENV", "dev")
+    monkeypatch.delenv("MODEL_NAME", raising=False)
+    monkeypatch.delenv("MODEL_REGISTRY_ALIAS", raising=False)
 
 
 @pytest.fixture
@@ -78,6 +87,28 @@ def test_evaluate_quality_gate_fails_when_any_metric_below_threshold(
     assert checks[failing_check]["passed"] is False
 
 
+def test_ci_cannot_assign_protected_alias() -> None:
+    """CI automation must never move a protected production alias."""
+    with pytest.raises(PromotionGateError, match="CI is not authorized"):
+        validate_promotion_authorization("champion", "ci", "github-actions")
+
+
+def test_protected_alias_requires_named_approver() -> None:
+    """A protected alias must have an identifiable human reviewer."""
+    with pytest.raises(PromotionGateError, match="requires --approved-by"):
+        validate_promotion_authorization("production", "prod", None)
+
+
+def test_named_approver_can_authorize_champion() -> None:
+    """A non-CI protected promotion is allowed when its reviewer is recorded."""
+    alias, actor = validate_promotion_authorization(
+        "@champion", "prod", "lead-ml-engineer@example.com"
+    )
+
+    assert alias == "champion"
+    assert actor == "lead-ml-engineer@example.com"
+
+
 def test_load_promotion_config_success(tmp_path: Path) -> None:
     """Correctly loads thresholds and registry configuration from YAML."""
     config_file = tmp_path / "thresholds.yaml"
@@ -128,7 +159,7 @@ def test_gate_and_promote_rejects_substandard_run(tmp_path: Path) -> None:
                     "min_precision_at_recall_60": 0.55,
                     "max_brier_score": 0.20,
                 },
-                "registry": {"model_name": "gated_model", "target_alias": "champion"},
+                "registry": {"model_name": "gated_model", "target_alias": "challenger"},
             },
             f,
         )
@@ -186,10 +217,28 @@ def test_gate_and_promote_custom_challenger_alias(tmp_path: Path) -> None:
         config_path=config_path,
         target_alias="challenger",
         tracking_uri=uri,
+        approved_by="github-actions",
     )
 
     assert result["status"] == "PROMOTED"
     assert result["alias"] == "@challenger"
     registered = client.get_registered_model("test_challenger_model")
     assert registered.aliases["challenger"] == 1
+    promoted_run = client.get_run(run.info.run_id)
+    assert promoted_run.data.tags["promotion.approved_by"] == "github-actions"
+    assert promoted_run.data.tags["promotion.environment"] == "dev"
+    assert promoted_run.data.tags["promotion.timestamp_utc"]
+    registered_version = client.get_model_version("test_challenger_model", result["version"])
+    assert registered_version.tags["promotion.approved_by"] == "github-actions"
+
+    # Retrying an approval is idempotent: reuse the run's version instead of creating a duplicate.
+    repeated_result = gate_and_promote(
+        run_id=run.info.run_id,
+        config_path=config_path,
+        target_alias="challenger",
+        tracking_uri=uri,
+        approved_by="github-actions",
+    )
+    assert repeated_result["version"] == result["version"]
+    assert len(client.search_model_versions("name='test_challenger_model'")) == 1
 

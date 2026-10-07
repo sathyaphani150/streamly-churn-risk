@@ -62,7 +62,8 @@ def run_evaluate(
     )
 
     # 4. Save evaluation metrics to metrics.json
-    with open(metrics_path, "w", encoding="utf-8") as f:
+    # Pin LF so the DVC-tracked JSON has identical bytes on Windows and Linux.
+    with open(metrics_path, "w", encoding="utf-8", newline="\n") as f:
         json.dump(metrics, f, indent=2)
 
     print(f"[evaluate] Successfully computed metrics and saved to: {metrics_path}")

@@ -9,7 +9,6 @@ Exposes:
 from __future__ import annotations
 
 import hashlib
-import os
 import sys
 import time
 from collections.abc import AsyncGenerator
@@ -25,6 +24,7 @@ from fastapi import FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from streamly.config import EnvironmentConfig, load_environment_config
 from streamly.data.validation import validate_serving_data
 from streamly.features.builder import build_serving_features
 
@@ -77,26 +77,27 @@ def local_artifact_version(artifact_path: Path) -> str:
     return f"local:{artifact_path.name}@sha256:{digest}"
 
 
-def load_scoring_model() -> tuple[Any, str]:
+def load_scoring_model(settings: EnvironmentConfig | None = None) -> tuple[Any, str]:
     """Load model artifact from MLflow Model Registry via alias or local fallback.
 
     Returns:
         tuple[Any, str]: (fitted_pipeline, version_identifier_string).
     """
-    model_name = os.getenv("MODEL_NAME", "streamly_churn_model")
-    target_alias = os.getenv("MODEL_REGISTRY_ALIAS", "champion").lstrip("@")
-    tracking_uri = os.getenv("MLFLOW_TRACKING_URI", "sqlite:///mlruns.db")
-    local_artifact_path = Path(os.getenv("MODEL_ARTIFACT_PATH", "models/baseline_model.joblib"))
+    runtime = settings or load_environment_config()
+    model_name = runtime.model_name
+    target_alias = runtime.model_registry_alias
+    tracking_uri = runtime.mlflow_tracking_uri
+    local_artifact_path = runtime.model_artifact_path
 
     # 1. Primary path: Attempt MLflow Model Registry alias resolution
     model_uri = f"models:/{model_name}@{target_alias}"
-    should_try_mlflow = True
-    if tracking_uri.startswith("sqlite:///"):
+    should_try_mlflow = tracking_uri is not None
+    if tracking_uri is not None and tracking_uri.startswith("sqlite:///"):
         sqlite_file = Path(tracking_uri.replace("sqlite:///", ""))
         if not sqlite_file.exists():
             should_try_mlflow = False
 
-    if should_try_mlflow:
+    if should_try_mlflow and tracking_uri is not None:
         try:
             mlflow.set_tracking_uri(tracking_uri)
             print(f"[serving] Resolving model from MLflow Registry: {model_uri}...")
@@ -105,22 +106,19 @@ def load_scoring_model() -> tuple[Any, str]:
             print(f"[serving] Successfully loaded model from {version_tag}")
             return model, version_tag
         except Exception as exc:
-            print(
-                f"[serving] Warning: Failed to load from MLflow Registry ({exc}). "
-                f"Falling back to local artifact: {local_artifact_path}...",
-                file=sys.stderr,
-            )
+            print(f"[serving] Warning: Failed to load from MLflow Registry ({exc}).", file=sys.stderr)
 
     # 2. Resilient fallback path: Local serialised artifact (for air-gapped / test environments)
-    if local_artifact_path.exists():
+    if runtime.allow_local_model_fallback and local_artifact_path.exists():
         model = joblib.load(local_artifact_path)
         version_tag = local_artifact_version(local_artifact_path)
         print(f"[serving] Loaded fallback model from {local_artifact_path}")
         return model, version_tag
 
     raise RuntimeError(
-        f"Unable to load scoring model. Neither MLflow URI '{model_uri}' nor "
-        f"local artifact '{local_artifact_path}' could be loaded."
+        f"Unable to load scoring model from MLflow URI '{model_uri}'. Local fallback "
+        f"is {'enabled' if runtime.allow_local_model_fallback else 'disabled'} for "
+        f"environment '{runtime.environment}'."
     )
 
 
@@ -128,8 +126,11 @@ def load_scoring_model() -> tuple[Any, str]:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Manage model lifecycle: warm up model artifact on startup."""
     print("[serving] Initializing Streamly Churn Scoring API...")
+    settings: EnvironmentConfig | None = None
     try:
-        model, model_version = load_scoring_model()
+        settings = load_environment_config()
+        app.state.settings = settings
+        model, model_version = load_scoring_model(settings)
         # Warm up feature builder and model pipeline to eliminate first-request cold-start latency
         warmup_df = pd.DataFrame(
             [
@@ -156,6 +157,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         app.state.model = None
         app.state.model_version = "uninitialized"
         app.state.is_ready = False
+        if settings is None or settings.environment == "prod":
+            raise
 
     yield
 
@@ -190,10 +193,11 @@ async def root() -> RedirectResponse:
 async def health_check() -> HealthResponse:
     """Readiness and liveness probe for orchestrators and load balancers."""
     is_ready = getattr(app.state, "is_ready", False)
+    settings: EnvironmentConfig = getattr(app.state, "settings", load_environment_config())
     return HealthResponse(
         status="healthy" if is_ready else "degraded",
-        environment=os.getenv("STREAMLY_ENV", "dev"),
-        model_name=os.getenv("MODEL_NAME", "streamly_churn_model"),
+        environment=settings.environment,
+        model_name=settings.model_name,
         model_version=getattr(app.state, "model_version", "unknown"),
         model_loaded=is_ready,
     )

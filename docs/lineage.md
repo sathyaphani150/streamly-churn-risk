@@ -128,7 +128,7 @@ print(f"Dataset DVC Hash: {run.data.tags.get('dataset_dvc_hash')}")
 Output:
 ```text
 Model Version: 1
-Originating Run ID: de3365da9e47458ea82d3ba8251e6be5
+Originating Run ID: de3365da2aa241858427c0464009da1c
 Dataset DVC Hash: 275ac17edd883e88de83ee71589d2b92
 ```
 This confirms that the exact bytes of the training sample can be cryptographically linked to the binary serving live predictions in production.

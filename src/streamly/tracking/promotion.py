@@ -9,19 +9,50 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
 import mlflow
 from mlflow.tracking import MlflowClient
 
-from streamly.config import load_promotion_settings
+from streamly.config import load_environment_config, load_promotion_settings
 
 DEFAULT_THRESHOLDS_PATH: Final[Path] = Path("configs/thresholds.yaml")
+PROTECTED_ALIASES: Final[frozenset[str]] = frozenset({"champion", "production"})
 
 
 class PromotionGateError(Exception):
     """Raised when a candidate model fails evaluation thresholds and cannot be promoted."""
+
+
+def validate_promotion_authorization(
+    target_alias: str,
+    environment: str,
+    approved_by: str | None,
+) -> tuple[str, str]:
+    """Validate alias governance and return normalized alias and audit actor."""
+    clean_alias = target_alias.lstrip("@").lower()
+    clean_approver = approved_by.strip() if approved_by else ""
+    clean_environment = environment.strip().lower()
+
+    if not clean_alias:
+        raise PromotionGateError("A non-empty model registry alias is required.")
+    if clean_environment not in {"dev", "ci", "prod"}:
+        raise PromotionGateError(f"Unsupported promotion environment '{environment}'.")
+
+    if clean_alias in PROTECTED_ALIASES:
+        if clean_environment == "ci":
+            raise PromotionGateError(
+                f"CI is not authorized to assign protected alias '@{clean_alias}'."
+            )
+        if not clean_approver:
+            raise PromotionGateError(
+                f"Protected alias '@{clean_alias}' requires --approved-by with the reviewer identity."
+            )
+
+    actor = clean_approver or f"{clean_environment}-automation"
+    return clean_alias, actor
 
 
 def load_promotion_config(config_path: Path = DEFAULT_THRESHOLDS_PATH) -> dict[str, Any]:
@@ -106,6 +137,8 @@ def promote_model_to_registry(
     model_name: str,
     target_alias: str = "challenger",
     tracking_uri: str | None = None,
+    environment: str = "dev",
+    approved_by: str | None = None,
 ) -> str:
     """Register trained model artifact and assign deployment alias in MLflow Registry.
 
@@ -114,22 +147,38 @@ def promote_model_to_registry(
         model_name: Registered model catalog name.
         target_alias: Deployment alias (e.g. 'champion' or 'production').
         tracking_uri: Tracking backend URI.
+        environment: Runtime environment requesting the promotion.
+        approved_by: Human reviewer identity for protected aliases.
 
     Returns:
         str: Created model version identifier.
     """
+    normalized_environment = environment.strip().lower()
+    clean_alias, audit_actor = validate_promotion_authorization(
+        target_alias=target_alias,
+        environment=normalized_environment,
+        approved_by=approved_by,
+    )
     uri: str = tracking_uri or os.getenv("MLFLOW_TRACKING_URI") or "sqlite:///mlruns.db"
     mlflow.set_tracking_uri(uri)
     client = MlflowClient(tracking_uri=uri)
 
-    # 1. Register the model artifact from the run
-    model_uri = f"runs:/{run_id}/model"
-    print(f"[registry] Registering model from {model_uri} under name '{model_name}'...")
-    model_version = mlflow.register_model(model_uri=model_uri, name=model_name)
-    version_str = str(model_version.version)
+    # 1. Reuse an existing version for this run, or register it exactly once.
+    existing_versions = client.search_model_versions(f"name='{model_name}'")
+    matching_versions = [version for version in existing_versions if version.run_id == run_id]
+    if matching_versions:
+        model_version = max(matching_versions, key=lambda version: int(version.version))
+        version_str = str(model_version.version)
+        print(
+            f"[registry] Reusing {model_name} version {version_str} already linked to run {run_id}."
+        )
+    else:
+        model_uri = f"runs:/{run_id}/model"
+        print(f"[registry] Registering model from {model_uri} under name '{model_name}'...")
+        model_version = mlflow.register_model(model_uri=model_uri, name=model_name)
+        version_str = str(model_version.version)
 
     # 2. Assign target deployment alias (e.g. @champion)
-    clean_alias = target_alias.lstrip("@")
     print(f"[registry] Assigning alias '@{clean_alias}' to {model_name} version {version_str}...")
     client.set_registered_model_alias(
         name=model_name,
@@ -142,6 +191,17 @@ def promote_model_to_registry(
     client.set_tag(run_id, "promotion.model_name", model_name)
     client.set_tag(run_id, "promotion.model_version", version_str)
     client.set_tag(run_id, "promotion.alias", f"@{clean_alias}")
+    client.set_tag(run_id, "promotion.environment", normalized_environment)
+    client.set_tag(run_id, "promotion.approved_by", audit_actor)
+    client.set_tag(run_id, "promotion.timestamp_utc", datetime.now(UTC).isoformat())
+    client.set_model_version_tag(model_name, version_str, "promotion.environment", normalized_environment)
+    client.set_model_version_tag(model_name, version_str, "promotion.approved_by", audit_actor)
+    client.set_model_version_tag(
+        model_name,
+        version_str,
+        "promotion.timestamp_utc",
+        datetime.now(UTC).isoformat(),
+    )
 
     return version_str
 
@@ -151,6 +211,7 @@ def gate_and_promote(
     config_path: Path = DEFAULT_THRESHOLDS_PATH,
     target_alias: str | None = None,
     tracking_uri: str | None = None,
+    approved_by: str | None = None,
 ) -> dict[str, Any]:
     """Execute evaluation quality gate on a run and promote to registry if thresholds pass.
 
@@ -159,6 +220,7 @@ def gate_and_promote(
         config_path: Path to thresholds.yaml.
         target_alias: Optional alias to assign (defaults to config or env, e.g. 'champion' or 'challenger').
         tracking_uri: MLflow tracking URI.
+        approved_by: Human reviewer identity required for protected aliases.
 
     Returns:
         dict[str, Any] with gate results and promotion status.
@@ -166,15 +228,7 @@ def gate_and_promote(
     Raises:
         PromotionGateError: If any threshold is violated.
     """
-    uri: str = tracking_uri or os.getenv("MLFLOW_TRACKING_URI") or "sqlite:///mlruns.db"
-    mlflow.set_tracking_uri(uri)
-    client = MlflowClient(tracking_uri=uri)
-
-    # 1. Fetch run and metrics
-    run = client.get_run(run_id)
-    actual_metrics = run.data.metrics
-
-    # 2. Load thresholds configuration
+    runtime = load_environment_config()
     config = load_promotion_config(config_path)
     thresholds = config.get("thresholds", {})
     registry_cfg = config.get("registry", {})
@@ -183,8 +237,23 @@ def gate_and_promote(
     effective_alias = target_alias or os.getenv("MODEL_REGISTRY_ALIAS") or registry_cfg.get(
         "target_alias", "challenger"
     )
+    clean_alias, audit_actor = validate_promotion_authorization(
+        target_alias=effective_alias,
+        environment=runtime.environment,
+        approved_by=approved_by,
+    )
 
-    # 3. Evaluate Quality Gate
+    uri = tracking_uri or runtime.mlflow_tracking_uri
+    if uri is None:
+        raise PromotionGateError("MLflow tracking URI is required for model promotion.")
+    mlflow.set_tracking_uri(uri)
+    client = MlflowClient(tracking_uri=uri)
+
+    # 1. Fetch run and metrics
+    run = client.get_run(run_id)
+    actual_metrics = run.data.metrics
+
+    # 2. Evaluate Quality Gate
     all_passed, checks = evaluate_quality_gate(actual_metrics, thresholds)
 
     print("\n" + "=" * 65)
@@ -203,13 +272,15 @@ def gate_and_promote(
             f"Quality gate REJECTED promotion for run {run_id}. Failed metrics: {failed_metrics}"
         )
 
-    # 4. Gate passed -> Promote to Registry and assign alias
+    # 3. Gate passed -> Promote to Registry and assign alias
     print("Quality gate PASSED all required thresholds!")
     version = promote_model_to_registry(
         run_id=run_id,
         model_name=model_name,
-        target_alias=effective_alias,
+        target_alias=clean_alias,
         tracking_uri=uri,
+        environment=runtime.environment,
+        approved_by=audit_actor,
     )
     print(f"SUCCESS: Promoted {model_name} v{version} to @{effective_alias.lstrip('@')}")
     print("=" * 65 + "\n")
@@ -220,6 +291,7 @@ def gate_and_promote(
         "model_name": model_name,
         "version": version,
         "alias": f"@{effective_alias.lstrip('@')}",
+        "approved_by": audit_actor,
         "checks": checks,
     }
 
@@ -240,11 +312,22 @@ def main() -> None:
         default=None,
         help="Registry alias to assign on promotion (e.g. champion, challenger)",
     )
+    parser.add_argument(
+        "--approved-by",
+        type=str,
+        default=None,
+        help="Reviewer identity; required when assigning champion or production",
+    )
 
     args = parser.parse_args()
 
     try:
-        gate_and_promote(run_id=args.run_id, config_path=args.config_path, target_alias=args.alias)
+        gate_and_promote(
+            run_id=args.run_id,
+            config_path=args.config_path,
+            target_alias=args.alias,
+            approved_by=args.approved_by,
+        )
         sys.exit(0)
     except PromotionGateError as exc:
         print(f"\nPROMOTION BLOCKED: {exc}", file=sys.stderr)
