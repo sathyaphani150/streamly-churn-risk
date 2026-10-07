@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import yaml
 
-from streamly.config import load_pipeline_config
+from streamly.config import load_environment_config, load_pipeline_config
 from streamly.features.builder import FEATURE_COLUMNS, build_training_features
 from streamly.models.baseline import create_model_pipeline, split_data
 from streamly.models.evaluation import evaluate_predictions
@@ -68,8 +68,11 @@ def run_experiment(
         str: MLflow run_id.
     """
     # 1. Configure MLflow Tracking
-    uri: str = tracking_uri or os.getenv("MLFLOW_TRACKING_URI") or "sqlite:///mlruns.db"
-    exp_name: str = experiment_name or os.getenv("MLFLOW_EXPERIMENT_NAME") or "streamly-churn-risk"
+    runtime = load_environment_config()
+    uri = tracking_uri or runtime.mlflow_tracking_uri
+    if uri is None:
+        raise ValueError("MLflow tracking URI is required to run an experiment")
+    exp_name = experiment_name or runtime.mlflow_experiment_name
     mlflow.set_tracking_uri(uri)
     mlflow.set_experiment(exp_name)
 
@@ -132,7 +135,7 @@ def run_experiment(
         # B. Log Lineage Tags
         mlflow.set_tags(
             {
-                "environment": os.getenv("STREAMLY_ENV", "dev"),
+                "environment": runtime.environment,
                 "dataset_path": str(data_path),
                 "dataset_dvc_hash": dvc_hash,
                 "feature_count": len(FEATURE_COLUMNS),

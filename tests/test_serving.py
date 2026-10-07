@@ -35,7 +35,7 @@ def client() -> Generator[TestClient, None, None]:
     """Provide a TestClient with triggered lifespan events."""
     os.environ["MLFLOW_TRACKING_URI"] = "sqlite:///mlruns.db"
     os.environ["MODEL_NAME"] = "streamly_churn_model"
-    os.environ["MODEL_REGISTRY_ALIAS"] = "champion"
+    os.environ["MODEL_REGISTRY_ALIAS"] = "challenger"
 
     with TestClient(app) as test_client:
         yield test_client

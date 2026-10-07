@@ -43,25 +43,40 @@ Containers executing as `root` represent a critical security vulnerability (cont
 - Shell disabled (`--shell /bin/false`) and home directory omitted (`--no-create-home`).
 - Directive `USER appuser` drops all capabilities before exposing port `8000`.
 
-### Base Image Tag Pinning
-- Pinned to Debian Bookworm slim (`python:3.11-slim-bookworm`).
-- In production deployment manifests, immutable cryptographic sha256 digests are used:
+### Base Image Digest Pinning
+- The builder and runtime both use Debian Bookworm slim and are pinned to the exact multi-platform
+  image digest resolved during the verified build.
+- The external `uv` image used by the builder is also digest-pinned:
   ```dockerfile
-  FROM python:3.11-slim-bookworm@sha256:d8b74685f4019a3b2b40656a59600a94bca99ab85c1ff94e094eb9726dc6a0c5
+  FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
+  COPY --from=ghcr.io/astral-sh/uv:0.6.1@sha256:90daa0b4d74ea55c7b8e06d25d3826b1eac66e7994387248e6173dd2b66668e2 /uv /uvx /bin/
   ```
+- The base interpreter's preinstalled `pip`, `setuptools`, and `wheel` copies are removed because
+  installation tooling is unnecessary at runtime. If an application dependency requires packaging
+  libraries, only its locked, scanned virtual-environment versions remain.
 
 ---
 
 ## 3. Vulnerability Scanning (Trivy & Grype)
 
-The assessment CI builds the image, verifies non-root execution, checks `/health`, and calls
-`/score`. A production delivery pipeline should add vulnerability scanning before an image is
-tagged or pushed to a registry; the command below is the proposed blocking job.
+The CI pipeline now executes Trivy `v0.75.0` against the built image. It fails the container job
+when a fixable HIGH or CRITICAL vulnerability is found, while ignoring findings that have no vendor
+fix. The Trivy action itself is pinned to its immutable `v0.36.0` commit rather than a mutable tag.
+The JSON report is retained for 30 days even when the blocking scan fails.
+
+The final hardened image was also scanned locally with this exact policy: Trivy exited `0` with
+zero fixable HIGH or CRITICAL findings. An earlier scan found two vulnerable packaging utilities
+from the base interpreter; removing those unused system copies eliminated the findings without
+changing the locked application environment copied from the builder.
 
 ### Recommended CI Command (Trivy)
 ```bash
 # Scan container image for CRITICAL and HIGH severity vulnerabilities
-trivy image --severity HIGH,CRITICAL --exit-code 1 streamly-churn:latest
+docker run --rm \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  aquasec/trivy:0.75.0 image \
+  --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+  streamly-churn:local
 ```
 - **Exit Code 1**: Fails the CI pipeline if an unpatched vulnerability exceeds the risk threshold.
 - **Ignore Unfixed**: Can be toggled (`--ignore-unfixed`) to focus exclusively on actionable vulnerabilities with vendor fixes.
@@ -84,29 +99,46 @@ syft streamly-churn:latest -o spdx-json=sbom.spdx.json
 syft streamly-churn:latest
 ```
 
-The resulting `sbom.spdx.json` should be archived as a CI artifact alongside the container image
-digest. SBOM generation is documented for this assessment but is not currently executed by CI.
+CI executes the digest-pinned Anchore SBOM action with Syft `v1.54.1`, writes
+`reports/security/sbom.spdx.json`, and archives it alongside the Trivy JSON report, Docker build
+log, and immutable image ID as the `container-security-evidence` artifact for 30 days.
 
 ---
 
 ## 5. Local Build & Run Instructions
 
-### 1. Build the Container Image
+### 1. Build and Start with Docker Compose
+
+This is the recommended fresh-clone and reviewer path. It selects the safe `dev` runtime profile,
+builds the multi-stage image, runs as UID/GID `10001`, drops all Linux capabilities, prevents
+privilege escalation, mounts a small temporary filesystem, and waits for `/health`:
+
 ```bash
-docker build -t streamly-churn:latest .
+docker compose up --build --wait
 ```
 
-### 2. Run the Container
-```bash
-docker run -d \
-  --name streamly-api \
-  -p 8000:8000 \
-  -e STREAMLY_ENV=prod \
-  -e MODEL_REGISTRY_ALIAS=champion \
-  streamly-churn:latest
+If host port `8000` is busy, set `STREAMLY_API_PORT` before starting Compose; the container still
+listens on its internal port `8000`:
+
+```powershell
+$env:STREAMLY_API_PORT = "8081"
+docker compose up --build --wait
 ```
 
-### 3. Verify Health & Live Inference
+No `.env`, MLflow server, or host model volume is required for this self-contained demonstration.
+`STREAMLY_COMPOSE_ENV` is deliberately separate from the host's `STREAMLY_ENV`, preventing an
+unrelated shell variable from accidentally placing the review container in production mode.
+
+### 2. Verify Health & Live Inference
+
+Run the portable smoke test from a second terminal:
+
+```bash
+docker compose exec api python /app/scripts/smoke_test.py
+```
+
+Or inspect each endpoint manually:
+
 ```bash
 # Check container health status
 curl -i http://localhost:8000/health
@@ -123,6 +155,20 @@ curl -X POST http://localhost:8000/score \
     "plan_tier": "premium",
     "price_increase_flag": 0
   }'
+```
+
+Confirm Compose reports a healthy container and that the process is non-root:
+
+```bash
+docker compose ps
+docker compose exec api id -u
+# Expected UID: 10001
+```
+
+Stop and remove the service without deleting any project data:
+
+```bash
+docker compose down
 ```
 
 When connected to MLflow, `model_version` reports the configured alias, such as

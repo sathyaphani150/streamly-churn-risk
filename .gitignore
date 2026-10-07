@@ -18,6 +18,9 @@ ENV/
 # Testing & Linting cache
 .pytest_cache/
 .coverage
+coverage.xml
+junit-report.xml
+reports/security/
 htmlcov/
 .mypy_cache/
 .ruff_cache/

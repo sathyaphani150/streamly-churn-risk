@@ -100,10 +100,12 @@ mlops_poc/
 
 | Aspect | Development (`dev`) | Continuous Integration (`ci`) | Production (`prod`) |
 | :--- | :--- | :--- | :--- |
-| **Tracking URI** | Local SQLite (`sqlite:///mlruns.db`) | Ephemeral SQLite / Hosted MLflow | Managed MLflow (PostgreSQL + S3) |
+| **Enforced profile** | `configs/environments/dev.yaml` | `configs/environments/ci.yaml` | `configs/environments/prod.yaml` |
+| **Tracking URI** | Local SQLite (`sqlite:///mlruns.db`) | Ephemeral SQLite | Required deployment-time MLflow URI |
 | **DVC Remote** | Local directory (`.dvc_remote/`) | Read-only object storage cache | Secure Cloud Bucket (`s3://streamly-dvc/`) |
-| **Model Registry Alias**| `@challenger` or `@champion` | Gated candidate alias | **`@champion`** (strictly protected) |
-| **Secrets / Credentials**| Local `.env` (gitignored) | GitHub Actions Encrypted Secrets | AWS Secrets Manager / Vault |
+| **Model Registry Alias**| `@champion` for local inspection | `@challenger`; protected aliases rejected | **`@champion`** (strictly protected) |
+| **Local model fallback** | Allowed for easy development | Allowed for isolated smoke tests | Forbidden; startup fails closed |
+| **Secrets / Credentials**| Optional shell variables (`.env` is not required) | GitHub Actions Encrypted Secrets | AWS Secrets Manager / Vault |
 | **Error Handling** | Detailed tracebacks enabled | Verbose test reporting | Sanitized responses, structured JSON logs |
 
 ---

@@ -1,0 +1,8 @@
+environment: dev
+mlflow_tracking_uri: sqlite:///mlruns.db
+mlflow_experiment_name: streamly-churn-risk
+model_name: streamly_churn_model
+model_registry_alias: champion
+model_artifact_path: models/baseline_model.joblib
+allow_local_model_fallback: true
+log_level: DEBUG

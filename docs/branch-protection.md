@@ -42,10 +42,9 @@ enforced in GitHub wherever repository permissions allow):
 Before a PR can be merged into `main`, the following automated jobs must report **GREEN**:
 
 1. **`Code Hygiene, Contracts & Test Suite`**:
-   - `ruff check .` (zero linting or syntax defects).
-   - `mypy src tests --strict` (zero type contract violations).
-   - `python -m streamly.data.validation` (asserts raw sample adheres to Pandera data contract and prevents leakage).
-   - `pytest` (asserts all unit and integration tests pass, including sub-200ms API latency).
+   - Developers and CI both run `uv run python scripts/verify.py`; there is no separate local approximation of the workflow.
+   - The shared command enforces Ruff, strict Mypy, deterministic sample materialization, the Pandera training-data contract, DVC reproduction and clean status, and the complete Pytest suite.
+   - Coverage XML and JUnit XML reports are generated locally and archived by GitHub Actions.
 2. **`Multi-stage Docker Build Verification`**:
    - Proves container compiles from `uv.lock` and packages clean without dependency conflicts.
 
@@ -56,5 +55,5 @@ Before a PR can be merged into `main`, the following automated jobs must report 
 Just as `main` is protected from unreviewed code, the **`@champion`** and **`@production`** aliases in the MLflow Model Registry are protected assets:
 
 - **Automated Gating**: Models can only receive the `@challenger` alias automatically upon clearing `configs/thresholds.yaml` in CI.
-- **Promotion to `@champion`**: Requires manual sign-off by the Lead ML Engineer and Product Owner, followed by an explicit `promotion --alias champion` command.
-- **Audit Lineage**: Every alias assignment is recorded in the immutable MLflow backend with `run_id`, committing author, and timestamp.
+- **Promotion to `@champion`**: Requires manual sign-off followed by an explicit `promotion --alias champion --approved-by <REVIEWER_ID>` command. The command rejects protected aliases when `STREAMLY_ENV=ci` and rejects anonymous protected promotions in every environment.
+- **Audit Lineage**: Every alias assignment records the `run_id`, environment, normalized alias, approver identity, and UTC timestamp as MLflow metadata. This application-level guard complements—not replaces—access control on the shared MLflow service.

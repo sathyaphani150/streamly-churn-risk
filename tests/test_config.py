@@ -6,7 +6,20 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from streamly.config import load_pipeline_config, load_promotion_settings
+from streamly.config import (
+    ENVIRONMENT_VARIABLES,
+    load_environment_config,
+    load_pipeline_config,
+    load_promotion_settings,
+)
+
+
+@pytest.fixture(autouse=True)
+def isolate_runtime_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent developer-machine variables from changing configuration test inputs."""
+    monkeypatch.delenv("STREAMLY_ENV", raising=False)
+    for variable_name in ENVIRONMENT_VARIABLES:
+        monkeypatch.delenv(variable_name, raising=False)
 
 
 def valid_pipeline_config() -> dict[str, object]:
@@ -75,3 +88,71 @@ def test_pipeline_config_rejects_invalid_percentage(tmp_path: Path) -> None:
 
     with pytest.raises(ValidationError, match="test_size"):
         load_pipeline_config(config_path)
+
+
+def write_environment_profile(tmp_path: Path, **overrides: object) -> Path:
+    """Write a minimal runtime profile and return its containing directory."""
+    profile: dict[str, object] = {
+        "environment": "dev",
+        "mlflow_tracking_uri": "sqlite:///mlruns.db",
+        "mlflow_experiment_name": "streamly-churn-risk",
+        "model_name": "streamly_churn_model",
+        "model_registry_alias": "champion",
+        "model_artifact_path": "models/baseline_model.joblib",
+        "allow_local_model_fallback": True,
+        "log_level": "DEBUG",
+    }
+    profile.update(overrides)
+    environment = str(profile["environment"])
+    (tmp_path / f"{environment}.yaml").write_text(
+        yaml.safe_dump(profile), encoding="utf-8"
+    )
+    return tmp_path
+
+
+def test_ci_profile_rejects_protected_alias(tmp_path: Path) -> None:
+    """CI automation must never be able to promote a champion model."""
+    config_dir = write_environment_profile(tmp_path, environment="ci", model_registry_alias="champion")
+
+    with pytest.raises(ValidationError, match="protected model alias"):
+        load_environment_config("ci", config_dir)
+
+
+def test_prod_requires_tracking_uri(tmp_path: Path) -> None:
+    """Production must fail closed when no model registry is configured."""
+    config_dir = write_environment_profile(
+        tmp_path,
+        environment="prod",
+        mlflow_tracking_uri=None,
+        allow_local_model_fallback=False,
+    )
+
+    with pytest.raises(ValidationError, match="MLFLOW_TRACKING_URI"):
+        load_environment_config("prod", config_dir)
+
+
+def test_prod_rejects_local_fallback(tmp_path: Path) -> None:
+    """Production must not silently serve the image's bundled fallback model."""
+    config_dir = write_environment_profile(
+        tmp_path,
+        environment="prod",
+        mlflow_tracking_uri="https://mlflow.example.test",
+        allow_local_model_fallback=True,
+    )
+
+    with pytest.raises(ValidationError, match="must not allow local model fallback"):
+        load_environment_config("prod", config_dir)
+
+
+def test_environment_variables_override_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Deployment-time environment variables override safe YAML defaults."""
+    config_dir = write_environment_profile(tmp_path)
+    monkeypatch.setenv("MODEL_REGISTRY_ALIAS", "challenger")
+    monkeypatch.setenv("ALLOW_LOCAL_MODEL_FALLBACK", "false")
+
+    settings = load_environment_config("dev", config_dir)
+
+    assert settings.model_registry_alias == "challenger"
+    assert settings.allow_local_model_fallback is False

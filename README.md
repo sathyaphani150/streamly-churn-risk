@@ -12,6 +12,48 @@ Delivers near-real-time churn risk predictions within a 200 ms service target ov
 - Python 3.11+
 - `uv` package manager (`pip install uv` or `winget install astral-sh.uv`)
 - Git
+- Docker Desktop or Docker Engine with Compose v2
+
+### Fastest reviewer path: Docker Compose
+
+The container includes a deterministic fallback model, so no `.env`, local Python installation,
+MLflow server, or DVC remote is required for this demonstration:
+
+```bash
+docker compose up --build --wait
+```
+
+If port `8000` is already occupied, choose another host port (PowerShell example):
+
+```powershell
+$env:STREAMLY_API_PORT = "8081"
+docker compose up --build --wait
+```
+
+In a second terminal, run the portable health-and-scoring smoke test:
+
+```bash
+docker compose exec api python /app/scripts/smoke_test.py
+```
+
+Stop and remove the local service with `docker compose down`.
+
+Every pull request also builds this image, generates an SPDX-JSON SBOM with Syft, and runs a
+blocking Trivy scan for fixable HIGH and CRITICAL vulnerabilities. GitHub Actions retains the SBOM,
+scan JSON, image ID, and build log as the `container-security-evidence` artifact.
+
+### Run CI checks before pushing
+
+Do not execute `.github/workflows/ci.yml` directly. GitHub Actions supplies the remote runner, but
+local development and CI both call the same version-controlled verification program:
+
+```bash
+uv run python scripts/verify.py
+```
+
+It stops on the first failure and checks Ruff, strict Mypy, deterministic data generation, the
+training-data contract, DVC reproduction and status, and the complete test suite. A successful run
+also creates `coverage.xml` and `junit-report.xml`, which GitHub Actions archives as evidence.
 
 ### Step-by-Step Walkthrough
 
@@ -23,34 +65,25 @@ cd streamly-churn-risk
 # 2. Set up deterministic virtual environment from uv.lock
 uv sync --extra dev
 
-# 3. Configure local environment variables
-cp .env.example .env
+# 3. Run the complete local/CI verification contract
+uv run python scripts/verify.py
 
-# 4. Materialize the deterministic sample data (required on a fresh clone)
-uv run python -m streamly.data.make_dataset
-
-# 5. Verify code quality gates (Linting & Strict Type Checking)
-uv run ruff check .
-uv run mypy src tests
-
-# 6. Reproduce and verify the complete DVC pipeline
-uv run dvc repro
-uv run dvc status
-
-# 7. Run the data contract directly and execute all 59 tests
-uv run python -m streamly.data.validation
-uv run pytest
-
-# 8. Track a candidate and assign the CI-safe challenger alias after it passes
+# 4. Track a candidate and assign the CI-safe challenger alias after it passes
 uv run python -m streamly.tracking.experiment --run-name production_candidate
 uv run python -m streamly.tracking.promotion --run-id <RUN_ID> --alias challenger
 
-# 9. Manual production approval only: move an approved run to champion
-uv run python -m streamly.tracking.promotion --run-id <APPROVED_RUN_ID> --alias champion
+# 5. Manual production approval only: move an approved run to champion
+uv run python -m streamly.tracking.promotion --run-id <APPROVED_RUN_ID> --alias champion --approved-by <REVIEWER_ID>
 
-# 10. Start the real-time scoring microservice
+# 6. Start the real-time scoring microservice
 uv run uvicorn streamly.serving.app:app --port 8000
 ```
+
+The default profile is [`configs/environments/dev.yaml`](configs/environments/dev.yaml), so a
+`.env` file is not required. Select another profile with `STREAMLY_ENV=ci` or
+`STREAMLY_ENV=prod`. Environment variables listed in [`.env.example`](.env.example) are optional
+deployment-time overrides. Production deliberately fails to start unless
+`MLFLOW_TRACKING_URI` is supplied, and it never falls back to the bundled local model.
 
 ### Test Live Scoring with `curl`
 In another terminal, send a member snapshot:
@@ -117,12 +150,19 @@ access keys must not be written to `.dvc/config` or committed to Git.
 | Requirement | Command / Pointer | Evidence / Location |
 | :--- | :--- | :--- |
 | **Reproducible Pipeline** | `uv run dvc repro` | [`dvc.yaml`](dvc.yaml), [`dvc.lock`](dvc.lock) |
+| **Complete Pre-Push Gate** | `uv run python scripts/verify.py` | Same seven quality gates used by CI |
 | **MLflow Experiment UI** | `uv run mlflow ui --backend-store-uri sqlite:///mlruns.db --port 5000` | Open `http://127.0.0.1:5000` |
-| **Champion Model ID** | Version 1 (Logistic Regression) | `streamly_churn_model@champion` (ROC-AUC: 0.8038, PR-AUC: 0.6657, Brier: 0.1653) |
+| **Champion Model ID** | Version 1 / Run `de3365da2aa241858427c0464009da1c` | `streamly_churn_model@champion` (ROC-AUC: 0.8038, PR-AUC: 0.6657, Brier: 0.1653) |
 | **Challenger Model ID** | Version 3 (Random Forest) | `streamly_churn_model@challenger` (ROC-AUC: 0.7791, Prec@R60: 0.6015) |
 | **Promotion Thresholds**| [`configs/thresholds.yaml`](configs/thresholds.yaml) | `min_roc_auc: 0.75`, `min_pr_auc: 0.60`, `min_prec@r60: 0.55`, `max_brier: 0.20` |
 | **Live Serving Service**| `http://127.0.0.1:8000/docs` | Interactive Swagger UI + `/health` and `/score` |
-| **Containerization** | `docker build -t streamly-churn:latest .` | Multi-stage, non-root user (`appuser:10001`) |
+| **Containerization** | `docker compose up --build --wait` | Multi-stage, non-root UID `10001`, health check, Trivy scan, and Syft SBOM |
+
+The thresholds are deliberately above weak/random behavior without being tuned to the held-out
+sample: ROC-AUC `0.75` requires useful ranking, PR-AUC `0.60` requires substantial lift over the
+roughly 33% churn prevalence, precision `0.55` at recall `0.60` limits wasted retention outreach,
+and Brier score `0.20` requires reasonably calibrated probabilities. The champion clears all four
+with `0.8038`, `0.6657`, `0.6082`, and `0.1653`, respectively.
 
 ---
 

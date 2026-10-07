@@ -14,7 +14,10 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .coverage
+coverage.xml
+junit-report.xml
 htmlcov/
+reports/
 
 # DVC storage and caches
 .dvc/cache/
